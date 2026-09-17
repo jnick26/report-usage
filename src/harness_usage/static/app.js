@@ -10,6 +10,7 @@ if (window.up && window.EventSource) {
   let refreshing = false;
   let importing = false;
   let latestRevision = 0;
+  let latestStatus;
   function refreshReport() {
     const report = document.querySelector('#report');
     if (!report || refreshing || importing || latestRevision <= Number(report.dataset.revision)) return;
@@ -25,33 +26,49 @@ if (window.up && window.EventSource) {
       retryTimer = setTimeout(refreshReport, 3000);
     }).finally(() => { refreshing = false; });
   }
-  function connect() {
-    stream = new EventSource('/events');
-    stream.addEventListener('status', event => {
-    const state = JSON.parse(event.data);
-    importing = state.state === 'running';
+  function renderStatus(state) {
+    if (!state) return;
     const source = /^source_(\d+)_(unavailable|read_failed)$/.exec(state.error || '');
     const failure = source ? `Source ${source[1]} ${source[2] === 'unavailable' ? 'is unavailable' : 'could not be fully read'}. Showing saved data. Check Sources and retry.` : 'Import failed. Showing saved data. Check Sources and retry.';
-    latestRevision = state.revision;
     const line = document.querySelector('#import-status');
     if (line) {
       line.dataset.state = state.state;
       line.hidden = !['running', 'failed', 'interrupted'].includes(state.state);
+      const checking = state.phase === 'checking' && state.files_total > 0;
+      const progressText = state.phase === 'finalizing' ? 'Finalizing'
+        : checking ? `${state.files_checked} / ${state.files_total} files checked · ${Math.floor(100 * state.files_checked / state.files_total)}%`
+        : 'Discovering files';
       const text = state.state === 'running'
-        ? `Importing local history · ${state.files_processed} files processed. Showing saved data.`
+        ? `${progressText}. Showing saved data.`
         : state.state === 'failed'
           ? failure
           : state.state === 'interrupted'
             ? 'The previous import was interrupted. Saved history remains available.'
             : 'Saved local history';
       line.querySelector('span').textContent = text;
+      const progress = line.querySelector('progress');
+      progress.hidden = state.state !== 'running';
+      if (state.state === 'running' && checking) {
+        progress.max = state.files_total;
+        progress.value = state.files_checked;
+      } else {
+        progress.removeAttribute('value');
+      }
       line.querySelector('button').textContent = ['failed', 'interrupted'].includes(state.state) ? 'Retry import' : 'Refresh';
     }
-    refreshReport();
-  });
+  }
+  function connect() {
+    stream = new EventSource('/events');
+    stream.addEventListener('status', event => {
+      latestStatus = JSON.parse(event.data);
+      importing = latestStatus.state === 'running';
+      latestRevision = latestStatus.revision;
+      renderStatus(latestStatus);
+      refreshReport();
+    });
   }
   connect();
-  up.on('up:fragment:inserted', refreshReport);
+  up.on('up:fragment:inserted', () => { renderStatus(latestStatus); refreshReport(); });
   window.addEventListener('pagehide', () => { stream.close(); clearTimeout(retryTimer); });
   window.addEventListener('pageshow', event => { if (event.persisted) connect(); });
 }

@@ -19,3 +19,4 @@
 .projects-report{font-size:13px}.projects-report>.section{margin-top:16px}.projects-report .usage-summary>.amount>.value,.projects-report .usage-summary>.amount>.price-button{font-size:14px}
 .project-table th,.project-table td{padding-block:8px;border-bottom-color:#333634}.project-table a{text-decoration-thickness:1px;text-decoration-color:#adb0ac;text-underline-offset:3px}
 .table-wrap:focus-visible{outline:2px solid #ecece8;outline-offset:3px}
+.import-progress{flex:1;min-width:0}.import-progress progress{display:block;width:100%;max-width:560px;height:10px;margin-top:8px;accent-color:#b9beb5}

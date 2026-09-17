@@ -1,10 +1,11 @@
 """Local use cases: one importer and reports over committed evidence."""
 from datetime import datetime
+from dataclasses import replace
 from itertools import batched
 import json
 import os
 from pathlib import Path
-from threading import Lock, Thread
+from threading import Lock, Thread, current_thread
 from typing import Iterator, Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -16,7 +17,7 @@ from .pricing import load_bundled_catalog
 from .transcript import TranscriptPage
 from .transcript_access import read_transcript_page
 from .reporting import Report, ReportQuery, SessionSort
-from .storage import Storage, ImportStatus as ImportStatus
+from .storage import Storage, ImportPhase, ImportStatus as ImportStatus
 from .aggregate_reporting import build_aggregate_report
 from .source_input import MAX_PROBE_BYTES, SourcePayload, detect_source
 
@@ -78,6 +79,8 @@ class Application:
         self.storage = Storage(data_dir / 'ledger.duckdb')
         self.catalog = load_bundled_catalog()
         self._lock = Lock()
+        self._progress_lock = Lock()
+        self._progress: tuple[str, ImportPhase, int, int | None] | None = None
         self._worker: Thread | None = None
         self._config = data_dir / 'sources.json'
         self.storage.interrupt_runs()
@@ -105,7 +108,21 @@ class Application:
         return read_transcript_page(self.storage, self.get_roots(), session_id, branch)
 
     def status(self) -> ImportStatus:
-        return self.storage.import_status()
+        status = self.storage.import_status()
+        with self._progress_lock:
+            progress = self._progress
+            if progress is not None and progress[0] == status.run_id:
+                return replace(status, phase=progress[1] if status.state == 'running' else None,
+                               files_checked=progress[2], files_total=progress[3])
+        return status
+
+    def _update_progress(self, run_id: str | None, phase: ImportPhase,
+                         checked: int | None = None, total: int | None = None) -> None:
+        with self._progress_lock:
+            progress = self._progress
+            if progress is not None and progress[0] == run_id:
+                self._progress = (progress[0], phase, progress[2] if checked is None else checked,
+                                  progress[3] if total is None else total)
 
     def start_import(self) -> ImportStatus:
         with self._lock:
@@ -116,11 +133,15 @@ class Application:
             status = self.storage.begin_import(run_id)
             if status.run_id != run_id:
                 return status
+            with self._progress_lock:
+                self._progress = (run_id, 'discovering', 0, None)
             self._worker = Thread(target=self._import, args=(run_id, roots), name='usage-import', daemon=False)
             self._worker.start()
-            return status
+            return replace(status, phase='discovering')
 
     def _scan(self, roots: tuple[str, ...]) -> Iterator[SourcePayload]:
+        with self._progress_lock:
+            run_id = self._progress[0] if self._progress is not None and current_thread() is self._worker else None
         files: dict[Path, int] = {}
         authorized_roots = tuple(Path(value) for value in roots)
         for index, value in enumerate(roots, 1):
@@ -141,7 +162,8 @@ class Application:
                             files.setdefault(path, index)
             except OSError as error:
                 raise SourceFailure(index, 'unavailable') from error
-        for path, index in sorted(files.items()):
+        self._update_progress(run_id, 'checking' if files else 'finalizing', 0, len(files))
+        for checked, (path, index) in enumerate(sorted(files.items()), 1):
             try:
                 data = path.read_bytes()
                 context: tuple[tuple[str, bytes], ...] = ()
@@ -162,6 +184,7 @@ class Application:
                 raise SourceFailure(index, 'read_failed') from failure
             payload = SourcePayload(str(path), data, context)
             kind = detect_source(payload)
+            supported = kind is not None
             if kind is None and path.suffix == '.jsonl':
                 first = data.split(b'\n', 1)[0]
                 if len(first) <= MAX_PROBE_BYTES:
@@ -169,11 +192,9 @@ class Application:
                         header = json.loads(first)
                     except (ValueError, UnicodeError, RecursionError):
                         header = None
-                    if not isinstance(header, dict) or header.get('type') not in ('session', 'session_meta'):
-                        continue
-                else:
-                    continue
-            if kind is not None or path.suffix == '.jsonl':
+                    supported = isinstance(header, dict) and header.get('type') in ('session', 'session_meta')
+            self._update_progress(run_id, 'finalizing' if checked == len(files) else 'checking', checked, len(files))
+            if supported:
                 yield payload
 
     def _import(self, run_id: str, roots: tuple[str, ...]) -> None:
@@ -186,6 +207,7 @@ class Application:
                 found.update(payload.locator for payload in batch)
                 processed += len(batch)
                 self.storage.advance_import(run_id, processed)
+            self._update_progress(run_id, 'finalizing')
             self.storage.mark_missing(tuple(locator for locator in self.storage.locators() if locator not in found))
         except SourceFailure as failure:
             error = failure.code
@@ -193,6 +215,7 @@ class Application:
             # Source text and exception messages can contain transcript material.
             error = 'import_failed'
         finally:
+            self._update_progress(run_id, 'finalizing')
             try:
                 self._assign_projects()
             except Exception:

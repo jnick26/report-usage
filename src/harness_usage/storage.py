@@ -133,6 +133,7 @@ class ReportInput:
 
 
 RunState = Literal['idle', 'running', 'succeeded', 'failed', 'interrupted']
+ImportPhase = Literal['discovering', 'checking', 'finalizing']
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +143,9 @@ class ImportStatus:
     files_processed: int
     revision: int
     error: str | None
+    phase: ImportPhase | None = None
+    files_checked: int = 0
+    files_total: int | None = None
 
     def __post_init__(self) -> None:
         if self.state not in ('idle', 'running', 'succeeded', 'failed', 'interrupted'):
