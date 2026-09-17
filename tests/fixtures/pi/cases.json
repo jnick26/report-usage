@@ -1,0 +1,413 @@
+{
+  "profile": "pi-v3/0.85.1-shape-1",
+  "synthetic": true,
+  "cases": [
+    {
+      "name": "ordinary",
+      "files": [
+        "ordinary.jsonl"
+      ],
+      "selected": [
+        "ordinary.jsonl:00000001"
+      ],
+      "expected": {
+        "input": 100,
+        "output": 20,
+        "cache_read": 800,
+        "cache_write": 50,
+        "total": 970,
+        "recorded_usd": "0.01"
+      },
+      "reasoning": 5
+    },
+    {
+      "name": "auxiliary_all_time",
+      "files": [
+        "auxiliary.jsonl"
+      ],
+      "selected": [
+        "auxiliary.jsonl:00000001",
+        "auxiliary.jsonl:00000002",
+        "auxiliary.jsonl:00000003"
+      ],
+      "expected": {
+        "input": 115,
+        "output": 30,
+        "cache_read": 820,
+        "cache_write": 50,
+        "total": 1015,
+        "recorded_usd": "0.013"
+      },
+      "unbucketed_total": 45,
+      "unknown_model_entries": [
+        "00000002",
+        "00000003"
+      ]
+    },
+    {
+      "name": "auxiliary_dated",
+      "files": [
+        "auxiliary.jsonl"
+      ],
+      "selected": [
+        "auxiliary.jsonl:00000001"
+      ],
+      "expected": {
+        "input": 100,
+        "output": 20,
+        "cache_read": 800,
+        "cache_write": 50,
+        "total": 970,
+        "recorded_usd": "0.01"
+      },
+      "range_utc": [
+        "2026-09-12T00:00:00Z",
+        "2026-09-13T00:00:00Z"
+      ],
+      "excluded_from_range": [
+        "00000002",
+        "00000003"
+      ]
+    },
+    {
+      "name": "distinct_equal_attempts",
+      "files": [
+        "identical-attempts.jsonl"
+      ],
+      "selected": [
+        "identical-attempts.jsonl:00000001",
+        "identical-attempts.jsonl:00000004"
+      ],
+      "expected": {
+        "input": 200,
+        "output": 40,
+        "cache_read": 1600,
+        "cache_write": 100,
+        "total": 1940,
+        "recorded_usd": "0.02"
+      }
+    },
+    {
+      "name": "proven_fork",
+      "files": [
+        "parent.jsonl",
+        "fork.jsonl"
+      ],
+      "selected": [
+        "parent.jsonl:10000001",
+        "fork.jsonl:10000002"
+      ],
+      "expected": {
+        "input": 0,
+        "output": 130,
+        "cache_read": 0,
+        "cache_write": 0,
+        "total": 130,
+        "recorded_usd": "0"
+      },
+      "excluded_duplicate": [
+        "fork.jsonl:10000001"
+      ],
+      "import_orders": [
+        [
+          "parent.jsonl",
+          "fork.jsonl"
+        ],
+        [
+          "fork.jsonl",
+          "parent.jsonl"
+        ]
+      ]
+    },
+    {
+      "name": "fresh_child",
+      "files": [
+        "parent.jsonl",
+        "fresh-child.jsonl"
+      ],
+      "selected": [
+        "parent.jsonl:10000001",
+        "fresh-child.jsonl:20000001"
+      ],
+      "expected": {
+        "input": 0,
+        "output": 150,
+        "cache_read": 0,
+        "cache_write": 0,
+        "total": 150,
+        "recorded_usd": "0"
+      }
+    },
+    {
+      "name": "tool_overlap",
+      "files": [
+        "tool-parent.jsonl",
+        "tool-child.jsonl"
+      ],
+      "selected": [
+        "tool-child.jsonl:30000002"
+      ],
+      "expected": {
+        "input": 0,
+        "output": 50,
+        "cache_read": 0,
+        "cache_write": 0,
+        "total": 50,
+        "recorded_usd": "0"
+      },
+      "unresolved": [
+        "tool-parent.jsonl:30000001"
+      ],
+      "potential_overlap_total": 50
+    },
+    {
+      "name": "tail_before",
+      "files": [
+        "tail-before.jsonl"
+      ],
+      "selected": [
+        "tail-before.jsonl:00000001"
+      ],
+      "expected": {
+        "input": 100,
+        "output": 20,
+        "cache_read": 800,
+        "cache_write": 50,
+        "total": 970,
+        "recorded_usd": "0.01"
+      },
+      "pending_tail": true
+    },
+    {
+      "name": "tail_completed",
+      "files": [
+        "tail-after.jsonl"
+      ],
+      "selected": [
+        "tail-after.jsonl:00000001",
+        "tail-after.jsonl:00000005"
+      ],
+      "expected": {
+        "input": 100,
+        "output": 50,
+        "cache_read": 800,
+        "cache_write": 50,
+        "total": 1000,
+        "recorded_usd": "0.01"
+      },
+      "sequence": [
+        "import tail-before.jsonl",
+        "replace same locator with tail-after.jsonl",
+        "import twice"
+      ],
+      "pending_tail": false
+    },
+    {
+      "name": "malformed_middle",
+      "files": [
+        "malformed-middle.jsonl"
+      ],
+      "selected": [
+        "malformed-middle.jsonl:00000001",
+        "malformed-middle.jsonl:00000005"
+      ],
+      "expected": {
+        "input": 100,
+        "output": 50,
+        "cache_read": 800,
+        "cache_write": 50,
+        "total": 1000,
+        "recorded_usd": "0.01"
+      },
+      "diagnostic": "malformed_line"
+    },
+    {
+      "name": "partial_and_zero",
+      "files": [
+        "partial-zero.jsonl"
+      ],
+      "selected": [
+        "partial-zero.jsonl:40000001"
+      ],
+      "expected": {
+        "input": 100,
+        "output": 20,
+        "cache_read": 0,
+        "cache_write": null,
+        "total": 120,
+        "recorded_usd": "0"
+      },
+      "unknown": [
+        "cache_write"
+      ],
+      "observed_zero": [
+        "cache_read"
+      ]
+    },
+    {
+      "name": "unknown_identity",
+      "files": [
+        "unknown-model.jsonl"
+      ],
+      "selected": [
+        "unknown-model.jsonl:40000002"
+      ],
+      "expected": {
+        "input": 0,
+        "output": 50,
+        "cache_read": 0,
+        "cache_write": 0,
+        "total": 50,
+        "recorded_usd": "0"
+      },
+      "unknown": [
+        "provider",
+        "model"
+      ]
+    },
+    {
+      "name": "aborted_nonzero",
+      "files": [
+        "aborted.jsonl"
+      ],
+      "selected": [
+        "aborted.jsonl:40000003"
+      ],
+      "expected": {
+        "input": 0,
+        "output": 7,
+        "cache_read": 0,
+        "cache_write": 0,
+        "total": 7,
+        "recorded_usd": "0"
+      }
+    },
+    {
+      "name": "identity_conflict",
+      "files": [
+        "conflict-a.jsonl",
+        "conflict-b.jsonl"
+      ],
+      "selected": [],
+      "expected": {
+        "input": 0,
+        "output": 0,
+        "cache_read": 0,
+        "cache_write": 0,
+        "total": 0,
+        "recorded_usd": "0"
+      },
+      "unresolved": [
+        "conflict-a.jsonl:50000001",
+        "conflict-b.jsonl:50000001"
+      ]
+    },
+    {
+      "name": "midnight_start_inclusive",
+      "files": [
+        "midnight.jsonl"
+      ],
+      "selected": [
+        "midnight.jsonl:60000002"
+      ],
+      "expected": {
+        "input": 0,
+        "output": 13,
+        "cache_read": 0,
+        "cache_write": 0,
+        "total": 13,
+        "recorded_usd": "0"
+      },
+      "range_utc": [
+        "2026-09-12T21:00:00Z",
+        "2026-09-13T21:00:00Z"
+      ]
+    },
+    {
+      "name": "midnight_end_exclusive",
+      "files": [
+        "midnight.jsonl"
+      ],
+      "selected": [
+        "midnight.jsonl:60000001"
+      ],
+      "expected": {
+        "input": 0,
+        "output": 11,
+        "cache_read": 0,
+        "cache_write": 0,
+        "total": 11,
+        "recorded_usd": "0"
+      },
+      "range_utc": [
+        "2026-09-11T21:00:00Z",
+        "2026-09-12T21:00:00Z"
+      ]
+    },
+    {
+      "name": "invalid_count",
+      "files": [
+        "invalid-count.jsonl"
+      ],
+      "selected": [],
+      "expected": {
+        "input": 0,
+        "output": 0,
+        "cache_read": 0,
+        "cache_write": 0,
+        "total": 0,
+        "recorded_usd": "0"
+      },
+      "unknown": [
+        "output",
+        "total"
+      ],
+      "diagnostic": "invalid_count",
+      "note": "Zero is the empty known contribution, not an observed output zero."
+    },
+    {
+      "name": "explicit_name",
+      "files": [
+        "explicit-name.jsonl"
+      ],
+      "selected": [
+        "explicit-name.jsonl:00000001"
+      ],
+      "expected": {
+        "input": 100,
+        "output": 20,
+        "cache_read": 800,
+        "cache_write": 50,
+        "total": 970,
+        "recorded_usd": "0.01"
+      },
+      "display_name": "Synthetic session name"
+    },
+    {
+      "name": "retention_and_repeat",
+      "files": [
+        "ordinary.jsonl"
+      ],
+      "selected": [
+        "ordinary.jsonl:00000001"
+      ],
+      "expected": {
+        "input": 100,
+        "output": 20,
+        "cache_read": 800,
+        "cache_write": 50,
+        "total": 970,
+        "recorded_usd": "0.01"
+      },
+      "sequence": [
+        "import",
+        "import unchanged",
+        "move file to archive",
+        "full rescan",
+        "delete source",
+        "rescan"
+      ],
+      "retained": true
+    }
+  ]
+}

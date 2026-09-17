@@ -1,0 +1,19 @@
+{"timestamp":"2026-09-13T08:00:00Z","type":"session_meta","payload":{"id":"native-thread","session_id":"root-thread","timestamp":"2026-09-13T08:00:00Z","cwd":"/project","history_mode":"legacy","agent_nickname":"Transcript check"}}
+{"timestamp":"2026-09-13T08:00:01Z","type":"turn_context","payload":{"turn_id":"turn-1","model":"gpt-5.6-sol","cwd":"/project"}}
+{"timestamp":"2026-09-13T08:00:02Z","type":"event_msg","payload":{"type":"user_message","message":"Repeat me"}}
+{"timestamp":"2026-09-13T08:00:03Z","type":"response_item","payload":{"type":"message","id":"unsafe/native:id","role":"user","content":[{"type":"input_text","text":"Repeat me"}]}}
+{"timestamp":"2026-09-13T08:00:04Z","type":"response_item","payload":{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"Working"}]}}
+{"timestamp":"2026-09-13T08:00:05Z","type":"event_msg","payload":{"type":"agent_message","message":"Working","phase":"commentary"}}
+{"timestamp":"2026-09-13T08:00:06Z","type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"Reasoning summary"}],"content":[{"type":"reasoning_text","text":"Recorded details"}],"encrypted_content":"DO-NOT-EXPOSE"}}
+{"timestamp":"2026-09-13T08:00:07Z","type":"event_msg","payload":{"type":"agent_reasoning","text":"Reasoning summary"}}
+{"timestamp":"2026-09-13T08:00:08Z","type":"response_item","payload":{"type":"agent_message","author":"researcher","recipient":"reviewer","content":[{"type":"input_text","text":"Inter-agent note"}]}}
+{"timestamp":"2026-09-13T08:00:09Z","type":"compacted","payload":{"message":"Checkpoint summary","replacement_history":[{"type":"message","role":"user","content":[{"type":"input_text","text":"DO NOT APPEND"}]}]}}
+{"timestamp":"2026-09-13T08:00:10Z","type":"turn_context","payload":{"turn_id":"turn-2","model":"gpt-5.6-sol","cwd":"/project"}}
+{"timestamp":"2026-09-13T08:00:11Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Repeat me"}]}}
+{"timestamp":"2026-09-13T08:00:12Z","type":"event_msg","payload":{"type":"user_message","message":"Repeat me"}}
+{"timestamp":"2026-09-13T08:00:13Z","type":"response_item","payload":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}}
+{"timestamp":"2026-09-13T08:00:14Z","type":"event_msg","payload":{"type":"agent_message","message":"Done","phase":"final_answer"}}
+{"timestamp":"2026-09-13T08:00:15Z","type":"event_msg","payload":{"type":"item_completed","turn_id":"turn-2","item":{"type":"Plan","id":"plan-1","content":[{"type":"Text","text":"Plan item"}]}}}
+{"timestamp":"2026-09-13T08:00:16Z","type":"mystery","payload":{"secret":"bounded marker only"}}
+{bad json}
+{"type":"response_item"

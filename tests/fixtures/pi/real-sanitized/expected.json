@@ -1,0 +1,28 @@
+{
+  "synthetic": false,
+  "sanitized": true,
+  "profile": "pi-v3/0.85.1-shape-1",
+  "selection": "One parentless v3 session; exact disjoint assistant counters verified independently before import.",
+  "counts": {
+    "assistant": 10,
+    "auxiliary": 0,
+    "tool_result_records": 12,
+    "tool_result_usage_observations": 0
+  },
+  "assistant": {
+    "input": 51823,
+    "output": 1778,
+    "cacheRead": 195584,
+    "cacheWrite": 0,
+    "totalTokens": 249185
+  },
+  "auxiliary": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "totalTokens": 0
+  },
+  "assistant_recorded_usd": "0.410247000000000027",
+  "auxiliary_recorded_usd": "0"
+}

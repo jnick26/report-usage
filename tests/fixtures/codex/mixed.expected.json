@@ -1,0 +1,29 @@
+{
+  "parent_thread_id": "fixture-owner",
+  "forked_from_id": "fixture-fork",
+  "buckets": [
+    [
+      60,
+      20,
+      30,
+      10
+    ],
+    [
+      60,
+      20,
+      30,
+      10
+    ],
+    [
+      60,
+      20,
+      30,
+      10
+    ]
+  ],
+  "reasons": [
+    null,
+    null,
+    "modern_legacy_overlap"
+  ]
+}

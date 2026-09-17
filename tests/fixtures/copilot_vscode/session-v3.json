@@ -1,0 +1,52 @@
+{
+  "version": 3,
+  "sessionId": "vs-session",
+  "creationDate": 1789540000000,
+  "customTitle": "Synthetic Copilot session",
+  "workingDirectory": "file:///work/example",
+  "requests": [
+    {
+      "requestId": "request-a",
+      "timestamp": 1789540001000,
+      "message": {"text": "Explain <b>safe</b>"},
+      "responseId": "response-a",
+      "responseTimestamp": 1789540002000,
+      "response": [
+        {"kind": "thinking", "value": "Check the boundary."},
+        {"kind": "markdownContent", "content": {"value": "Use [link](javascript:alert(1))."}},
+        {"kind": "attachment", "name": "reference", "url": "https://user:secret@example.invalid/private"}
+      ],
+      "modelId": "auto",
+      "agent": {
+        "id": "copilot",
+        "extensionId": {"value": "GitHub.copilot-chat"},
+        "extensionPublisherId": "GitHub",
+        "extensionDisplayName": "GitHub Copilot Chat"
+      },
+      "promptTokens": 12,
+      "completionTokens": 5,
+      "copilotCredits": 0,
+      "modelTotals": [
+        {"model": "model-a", "inputTokens": 20, "cachedTokens": 2, "outputTokens": 5},
+        {"model": "model-b", "inputTokens": 30, "cachedTokens": 3, "outputTokens": 7}
+      ]
+    },
+    {
+      "requestId": "request-b",
+      "timestamp": 1789540003000,
+      "message": {"text": "Run a tool"},
+      "responseId": "response-b",
+      "responseTimestamp": 1789540004000,
+      "response": [
+        {"kind": "toolInvocation", "toolCallId": "tool-1", "toolName": "search", "arguments": "{\"q\":\"safe\"}", "result": "done"},
+        {"kind": "unsupportedSynthetic", "value": "PRIVATE_UNSUPPORTED_CANARY"}
+      ],
+      "modelId": "gpt-selected-only",
+      "agent": {"extensionId": {"value": "github.copilot-chat"}},
+      "promptTokens": 8,
+      "completionTokens": 3,
+      "copilotCredits": 0.25,
+      "sessionCopilotCredits": 0.5
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{"type":"session","version":3,"id":"native-branches","timestamp":"2026-09-13T08:00:00Z","cwd":"/workspace"}
+{"type":"message","id":"root","parentId":null,"timestamp":"2026-09-13T08:00:01Z","message":{"role":"user","content":"Choose"}}
+{"type":"model_change","id":"model-a","parentId":"root","timestamp":"2026-09-13T08:00:02Z","provider":"openai","modelId":"a"}
+{"type":"message","id":"answer-a","parentId":"model-a","timestamp":"2026-09-13T08:00:03Z","message":{"role":"assistant","model":"a","content":[{"type":"toolCall","id":"same-call","name":"read","arguments":{}}]}}
+{"type":"message","id":"result-a","parentId":"answer-a","timestamp":"2026-09-13T08:00:04Z","message":{"role":"toolResult","toolCallId":"same-call","toolName":"read","content":"A","isError":false}}
+{"type":"label","id":"leaf-a","parentId":"result-a","targetId":"answer-a","label":"Approach A","timestamp":"2026-09-13T08:00:05Z"}
+{"type":"thinking_level_change","id":"think-b","parentId":"root","timestamp":"2026-09-13T08:00:06Z","thinkingLevel":"high"}
+{"type":"message","id":"answer-b","parentId":"think-b","timestamp":"2026-09-13T08:00:07Z","message":{"role":"assistant","model":"b","content":[{"type":"toolCall","id":"same-call","name":"write","arguments":{}}]}}
+{"type":"message","id":"result-b","parentId":"answer-b","timestamp":"2026-09-13T08:00:08Z","message":{"role":"toolResult","toolCallId":"same-call","toolName":"write","content":"B","isError":false}}
+{"type":"label","id":"leaf-b","parentId":"result-b","targetId":"answer-b","label":"Approach B","timestamp":"2026-09-13T08:00:09Z"}

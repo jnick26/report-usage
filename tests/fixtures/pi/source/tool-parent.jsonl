@@ -1,0 +1,2 @@
+{"type":"session","version":3,"id":"9542c59e-7a70-5575-8552-22ecd0cdf970","timestamp":"2026-09-12T08:00:00.000Z","cwd":"/fixtures/atlas"}
+{"type":"message","id":"30000001","parentId":null,"timestamp":"2026-09-12T09:00:00.000Z","message":{"role":"toolResult","toolCallId":"synthetic-child-call","toolName":"subagent","content":[],"isError":false,"usage":{"input":0,"output":50,"cacheRead":0,"cacheWrite":0,"totalTokens":50,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0.004}},"timestamp":1789203600000}}

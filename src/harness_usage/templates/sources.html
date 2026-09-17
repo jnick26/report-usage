@@ -1,0 +1,12 @@
+{% extends 'base.html' %}{% block title %}Sources · Harness usage{% endblock %}{% block content %}
+<h1>Local sources</h1><p class="muted">Choose directories containing supported local AI harness history. Source files are read without modification.</p>
+{% if status.state == 'failed' %}<p role="status">{{ status.error|import_error }}</p>{% endif %}
+{% if saved_roots %}<ul class="source-list">{% for root in saved_roots %}<li><span class="muted">Source {{ loop.index }}</span> · {{ root }}</li>{% endfor %}</ul>{% endif %}
+<form action="/sources" method="post" class="sources" up-submit up-target="#main" up-fail-target="#main"><input type="hidden" name="csrf" value="{{ csrf }}"><label for="roots">Session directories · One absolute path per line</label><textarea id="roots" name="roots" rows="5" required spellcheck="false" aria-describedby="source-help">{{ roots }}</textarea><p id="source-help" class="small muted">Add only directories containing Pi, Codex, Claude Code, Copilot in VS Code, or Copilot CLI history that you want imported.</p>{% if error %}<p role="alert">{{ error }}</p>{% endif %}<button type="submit">Save sources and import</button></form>
+<section class="section" aria-label="Historical coverage"><h2>Historical coverage</h2>
+<p>Availability depends on recoverable local evidence. Recorded tokens, source quantities and API-equivalent estimates are separate; none establishes provider billing or subscription allocation.</p>
+<p>Claude Code: qualified modern entries can retain final output counters. Older or unversioned entries may lack final output; provider and recorded USD remain unavailable. Fuller history would require future content-free telemetry or terminal result capture, which is not implemented here.</p>
+<p>Copilot in VS Code: core chat history may retain lossy summaries with missing cache, actual-model, failure or credit details. The separate extension transcript is excluded. Complete per-call evidence would require future capture before serialization loses it.</p>
+<p>Copilot CLI: supported durable checkpoint and shutdown records retain cumulative usage. Older metadata-only sessions have unavailable usage. Per-call detail would require future durable capture of ephemeral usage events; this importer does not enable capture.</p>
+<p>Claude Code and Copilot CLI support is qualified against pinned source contracts and synthetic fixtures, not arbitrary future writer formats or complete historical usage.</p></section>
+{% endblock %}

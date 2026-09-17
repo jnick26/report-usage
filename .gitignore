@@ -1,0 +1,36 @@
+.venv/
+.cache/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+.DS_Store
+
+# Local histories, configuration, and development recovery archives.
+/.agents/
+/.claude/
+/.codex/
+/.pi/
+/.superpowers/
+/data/
+/local-data/
+*.duckdb
+*.duckdb.*
+*.sqlite
+*.sqlite3
+*.db
+*.db-*
+*.log
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+auth.json
+
+# Keep observed local results out of the published source tree.
+/docs/research/*
+!/docs/research/three-source-local-validation.py

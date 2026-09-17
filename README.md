@@ -1,0 +1,92 @@
+# Harness Usage
+
+A local browser application for coding-agent usage, published as `report-usage`.
+Imports Pi, Codex, Claude Code, Copilot in VS Code, and Copilot CLI as independent
+sources into one DuckDB database. Missing usage is unavailable, not zero.
+
+## Install with uv
+
+Requires [uv](https://docs.astral.sh/uv/getting-started/installation/), Git, and
+GitHub SSH access to this repository. The supported desktop platform is macOS;
+Python 3.13 is required. Windows is not supported by the current runtime.
+
+```sh
+uv tool install --python 3.13 'git+ssh://git@github.com/jnick26/report-usage.git@v0.1.0'
+harness-usage
+```
+
+The command opens `http://127.0.0.1:8765`. If the command is not on your PATH,
+run `uv tool update-shell` and restart your shell. The native macOS app bundle
+is not needed for uv installation.
+
+The tagged install stays pinned. To switch to a later release, install its tag
+with `uv tool install --force --python 3.13 <git-url-with-new-tag>`.
+
+## Configure sources
+
+Open **Sources** and add the directories containing your local histories:
+
+| Source | Typical macOS location |
+| --- | --- |
+| Pi | `~/.pi/agent/sessions` |
+| Codex | `~/.codex/sessions`, `~/.codex/archived_sessions` |
+| Claude Code | `~/.claude/projects` |
+| Copilot in VS Code | `~/Library/Application Support/Code/User/workspaceStorage` |
+| Copilot in VS Code Insiders | `~/Library/Application Support/Code - Insiders/User/workspaceStorage` |
+| Copilot CLI | `~/.copilot/session-state` |
+
+Configured homes/profiles can use different directories. Imports run on launch
+and when you choose **Refresh**. Original history files are read, not modified.
+
+```sh
+harness-usage --port 8766 --timezone Europe/Kyiv
+harness-usage --root /absolute/path/to/history --no-browser
+harness-usage --data-dir /absolute/path/to/app-data
+```
+
+App data defaults to `~/Library/Application Support/Harness Usage`; tool upgrades
+do not replace it. Only one running instance may use a given data directory.
+The server binds to loopback. Do not expose it publicly: it is a local tool,
+not an authenticated multi-user service. Installation downloads dependencies;
+normal usage and bundled pricing work offline.
+
+## Accounting limits
+
+- Pi and Codex use their source-specific token and reconciliation rules.
+- Claude output requires a valid per-record writer version of at least 2.1.97
+  and a valid final output counter. Older or unversioned output stays unavailable.
+- VS Code schema-v3 JSON/JSONL supports core usage/model totals and exact retained
+  `result.usage.promptTokens/completionTokens` or
+  `result.metadata.promptTokens/outputTokens` pairs. The latter pairs describe
+  one call: output is a lower bound (`≥`), not an exact whole-turn total. Gross
+  prompt evidence does not establish a fresh/cache split. Core fields take
+  precedence; equal overlaps count once and conflicting valid pairs are unresolved.
+- Copilot CLI supports the qualified durable event format. Workspace-only older
+  history has unavailable usage, not zero usage.
+- AI credits, nano-AIU, premium requests, request counts, recorded USD estimates,
+  and API-equivalent cost estimates stay separate. None establishes your bill or
+  subscription allocation. Selected model names alone are not priced.
+- Copilot VS Code and CLI have no general exact cross-source request join; their
+  combined usage is not a deduplicated billing total.
+- Transcripts require supported retained source files. Deleted history cannot be
+  reconstructed. Future per-call capture is not implemented or enabled.
+
+Pricing uses a bundled [models.dev](https://models.dev) snapshot; its license is
+included in the package. Unknown models or insufficient usage remain unpriced.
+
+## Development
+
+```sh
+uv sync --locked
+uv run pytest
+uv run mypy src/harness_usage
+```
+
+The fixtures are synthetic. Local histories, databases, credentials, research
+results and development recovery archives are excluded from this repository.
+Historical-reader migration checks require the unpublished development snapshots;
+those checks skip explicitly when the archive is absent, while normal tests run.
+Packaged-runtime tests also require `HARNESS_USAGE_BUNDLE` to point to a locally
+built executable. Skipped checks are not a claim of release-package validation.
+
+Optional macOS bundle build: `uv run pyinstaller harness-usage.spec --noconfirm`.

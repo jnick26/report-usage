@@ -1,0 +1,3 @@
+{"type":"session","version":3,"id":"native-compaction","timestamp":"2026-09-13T08:00:00Z","cwd":"/workspace"}
+{"type":"message","id":"old","parentId":null,"timestamp":"2026-09-13T08:00:01Z","message":{"role":"user","content":"old"}}
+{"type":"compaction","id":"checkpoint","parentId":"old","timestamp":"2026-09-13T08:00:02Z","summary":"Checkpoint summary","firstKeptEntryId":"missing","tokensBefore":50,"retainedTail":[{"role":"user","content":"retained request"},{"role":"assistant","model":"m","content":[{"type":"toolCall","id":"embedded","name":"read","arguments":{}}]},{"role":"toolResult","toolCallId":"embedded","toolName":"read","content":"retained result","isError":false}]}

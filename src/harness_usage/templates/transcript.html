@@ -1,0 +1,82 @@
+{% macro content(block, output=false) -%}
+  {% if isinstance(block, TextBlock) %}{% if output %}<pre class="tool-result"><code>{{ block.text }}</code></pre>{% else %}<div class="text markdown">{{ block.text | safe_markdown }}</div>{% endif %}
+  {% elif isinstance(block, ReasoningBlock) %}<details class="reasoning"><summary><svg class="reasoning-icon" aria-hidden="true" viewBox="0 0 16 16"><path d="M8 3.3a2.6 2.6 0 0 0-4.8 1.4A2.5 2.5 0 0 0 2.7 9 2.6 2.6 0 0 0 5 12.8c1.3 0 2.4-.9 3-2.1 0 1.2 1.1 2.1 2.4 2.1A2.6 2.6 0 0 0 12.8 9a2.5 2.5 0 0 0-.5-4.3A2.6 2.6 0 0 0 8 3.3Zm0 0v7.4M5.1 6.1c.9 0 1.7.7 1.7 1.6m4.1-1.6c-.9 0-1.7.7-1.7 1.6"/></svg><span>{{ block.label }}</span></summary><div class="text markdown">{{ block.text | safe_markdown }}</div></details>
+  {% elif isinstance(block, AttachmentBlock) %}<div class="attachment"><span>Attachment reference</span>{{ block.label }}</div>
+  {% elif isinstance(block, ImageBlock) %}<figure class="media"><img src="{{ block.data_url }}" alt="Recorded image"></figure>
+  {% endif %}
+{%- endmacro %}
+{% macro segments(item) -%}
+  {% for segment in item.segments %}
+    {% if isinstance(segment, ToolGroup) %}<details class="activity-group"><summary><span class="nf" aria-hidden="true"></span><span>{{ segment.summary }}</span>{% if segment.failed %}<span class="activity-failure">Includes failed run</span>{% endif %}</summary><div class="tools">
+      {% for tool in segment.tools %}<details class="tool{% if tool.failed %} failed{% endif %}" id="{{ tool.anchor }}"><summary><span class="tool-name"><span class="nf" aria-hidden="true">{{ tool.icon }}</span>{{ tool.category }}</span><span class="tool-label" title="{{ tool.label }}">{{ tool.label }}</span>{% if tool.status %}<span class="tool-status">{{ tool.status }}</span>{% endif %}</summary><div class="tool-body">
+        <div class="copy-row"><label for="{{ tool.anchor }}-input">Input</label><button type="button" class="copy" data-copy-target="{{ tool.anchor }}-input">Copy</button></div><pre id="{{ tool.anchor }}-input"><code>{{ tool.block.arguments }}</code></pre>
+        {% if tool.block.output is none %}<p class="muted">The tool call is present in this snapshot; its result is not.</p>
+        {% elif isinstance(tool.block.output, ConflictingOutput) %}<p class="failure">{{ tool.block.output.reason }}</p>
+        {% else %}<div class="tool-output"><span class="output-label">Output</span>{% if not tool.block.output.blocks %}<p class="muted">An empty result was recorded.</p>{% endif %}{% for block in tool.block.output.blocks %}{{ content(block, true) }}{% endfor %}</div>{% endif %}
+      </div></details>{% endfor %}
+    </div></details>
+    {% else %}{{ content(segment) }}{% endif %}
+  {% endfor %}
+{%- endmacro %}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+{% if standalone %}<meta http-equiv="Content-Security-Policy" content="{{ csp }}">{% endif %}
+<title>{{ view.page.transcript.title }} · Transcript</title>
+{% if standalone %}<style>{{ css | safe }}</style>{% else %}<link rel="stylesheet" href="/static/transcript.css">{% endif %}
+{% if standalone %}<script>{{ javascript | safe }}</script>{% else %}<script src="/static/transcript.js" defer></script>{% endif %}
+</head>
+<body>
+<header class="page-head" id="top">
+  <nav class="breadcrumbs" aria-label="Breadcrumb">{% if standalone %}<span>Transcript export</span>{% else %}<a href="/">Usage</a><span>/</span><span>Session transcript</span>{% endif %}</nav>
+  <div class="title-row">
+    <div>
+      <h1>{{ view.page.transcript.title }}</h1>
+      <div class="meta"><span>{{ view.page.transcript.harness | harness_label }}</span>{% if view.page.transcript.model %}<span>{{ view.page.transcript.model }}</span>{% endif %}{% if view.page.transcript.started %}<span>{{ view.page.transcript.started }}</span>{% endif %}</div>
+      {% if view.page.transcript.cwd %}<p class="path">{{ view.page.transcript.cwd }}</p>{% endif %}
+    </div>
+    {% if not standalone %}<a class="download button" href="{{ view.download_href }}" download>Download HTML ↓</a>{% endif %}
+  </div>
+  {% if view.page.transcript.warnings %}<details class="warnings"><summary>{{ view.page.transcript.warnings | length }} source notice{% if view.page.transcript.warnings | length != 1 %}s{% endif %}</summary><ul>{% for warning in view.page.transcript.warnings %}<li>{{ warning }}</li>{% endfor %}</ul></details>{% endif %}
+  <p class="notice" id="notice" role="status" aria-live="polite"></p>
+</header>
+<div class="toolbar-shell"><div class="toolbar">
+  <div class="search" role="search">
+    <label class="sr-only" for="transcript-search">Search conversation</label><input type="search" id="transcript-search" placeholder="Search conversation" autocomplete="off">
+    <span class="result-count" id="result-count" aria-live="polite"></span><button type="button" id="previous" aria-label="Previous match" disabled>↑</button><button type="button" id="next" aria-label="Next match" disabled>↓</button>
+  </div>
+  <div class="toolbar-actions">
+    {% if not standalone and view.parent_href %}<a class="family-link" href="{{ view.parent_href }}">← {{ view.page.parent.title }}</a>{% endif %}
+    {% if not standalone and view.children %}<details class="child-menu"><summary>Subagents</summary><div class="child-links">{% for href, title in view.children %}<a href="{{ href }}" title="{{ title }}"><span class="nf" aria-hidden="true">󱙺</span><span class="child-title">{{ title }}</span></a>{% endfor %}</div></details>{% endif %}
+    {% if view.page.transcript.branches | length > 1 %}
+      {% if standalone %}<span class="branch-label">{{ (view.page.transcript.branches | selectattr('id', 'equalto', view.page.transcript.selected_branch) | first).label }}</span>
+      {% else %}<form class="branch-form" action="{{ view.transcript_href }}" method="get"><label class="sr-only" for="branch-selector">Recorded branch</label><select id="branch-selector" name="branch">{% for branch in view.page.transcript.branches %}<option value="{{ branch.id }}"{% if branch.id == view.page.transcript.selected_branch %} selected{% endif %}>{{ branch.label }}</option>{% endfor %}</select><button class="apply-branch" type="submit">Show branch</button></form>{% endif %}
+    {% endif %}
+    <button type="button" id="expand-tools">Expand tools</button><a href="#end">Latest ↓</a>
+  </div>
+</div></div>
+<main class="layout">
+  <aside class="outline" aria-label="Conversation navigation"><nav class="history-rail" aria-label="Conversation history">
+    {% for item in view.rail %}<a href="#{{ item.anchor }}" class="history-tick{% if item.tool %} tool-tick{% endif %}" aria-label="{{ item.label }}: {{ item.excerpt }}"><span class="tick-line"></span><span class="history-preview" role="tooltip"><strong>{{ item.label }}</strong><span>{{ item.excerpt }}</span></span></a>{% endfor %}
+  </nav></aside>
+  <section class="thread" id="thread" aria-label="Transcript">
+    {% for item in view.entries %}
+      {% if isinstance(item, NoticeView) %}<details class="context-note" id="{{ item.anchor }}"><summary>{{ item.entry.label }}</summary><div class="text-block">{{ item.entry.text }}</div></details>
+      {% elif isinstance(item, ActivityBatch) %}<details class="activity-batch"><summary><span>{{ item.summary }}</span></summary><div class="activity-entries">
+        {% for message in item.messages %}<article class="activity-entry" id="{{ message.anchor }}" aria-label="Assistant activity">{% if message.model %}<span class="model">{{ message.model }}</span>{% endif %}{{ segments(message) }}</article>{% endfor %}
+      </div></details>
+      {% elif isinstance(item, ContextGroup) %}<details class="context-note context-group"><summary>Session context</summary><div class="context-body">
+        {% for message in item.messages %}<article class="context-message" id="{{ message.anchor }}" aria-label="{{ message.label }}"><div class="context-role"><span>{{ message.label }}</span>{% if message.model %}<span class="model">{{ message.model }}</span>{% endif %}</div>{{ segments(message) }}</article>{% endfor %}
+      </div></details>
+      {% else %}<article class="message {{ item.entry.role }}" id="{{ item.anchor }}" aria-label="{{ item.label }} message">
+        <div class="role"><span class="sr-only">{{ item.label }}</span>{% if item.model %}<span class="model">{{ item.model }}</span>{% endif %}</div>{{ segments(item) }}
+      </article>{% endif %}
+    {% endfor %}
+    <div class="end" id="end"><span>End of recorded conversation</span><a href="#top">Back to top ↑</a></div>
+  </section>
+</main>
+{% if standalone and font_licenses %}<footer class="font-licenses"><details><summary>Bundled font licenses</summary><pre>{{ font_licenses }}</pre></details></footer>{% endif %}
+</body>
+</html>
