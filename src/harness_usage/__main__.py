@@ -5,6 +5,7 @@ import argparse
 from contextlib import contextmanager
 import fcntl
 import errno
+import os
 from pathlib import Path
 import socket
 from threading import Timer
@@ -15,6 +16,33 @@ from zoneinfo import ZoneInfoNotFoundError
 
 def default_data_dir() -> Path:
     return Path.home() / 'Library' / 'Application Support' / 'Harness Usage'
+
+
+def default_source_roots() -> tuple[str, ...]:
+    home = Path.home()
+    pi = Path(os.environ.get('PI_CODING_AGENT_DIR') or home / '.pi/agent')
+    codex = Path(os.environ.get('CODEX_HOME') or home / '.codex')
+    claude = Path(os.environ.get('CLAUDE_CONFIG_DIR') or home / '.claude')
+    copilot = Path(os.environ.get('COPILOT_HOME') or home / '.copilot')
+    candidates = (
+        Path(os.environ.get('PI_CODING_AGENT_SESSION_DIR') or pi / 'sessions'),
+        codex / 'sessions', codex / 'archived_sessions', claude / 'projects',
+        copilot / 'session-state',
+        home / 'Library/Application Support/Code/User/workspaceStorage',
+        home / 'Library/Application Support/Code - Insiders/User/workspaceStorage',
+    )
+    roots = []
+    for candidate in candidates:
+        root = candidate.expanduser()
+        try:
+            if root.is_symlink() or not root.is_dir() or not os.access(root, os.R_OK | os.X_OK):
+                continue
+            with os.scandir(root):
+                pass
+            roots.append(str(root.resolve()))
+        except OSError:
+            continue
+    return tuple(dict.fromkeys(roots))
 
 
 @contextmanager
@@ -58,6 +86,10 @@ def main() -> None:
                 try:
                     if args.root:
                         application.set_roots(tuple(str(Path(root).expanduser().resolve()) for root in args.root))
+                    elif not os.path.lexists(application.data_dir / 'sources.json'):
+                        defaults = default_source_roots()
+                        if defaults:
+                            application.set_roots(defaults)
                     if application.get_roots():
                         application.start_import()
                     if not args.no_browser:

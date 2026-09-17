@@ -11,7 +11,7 @@ GitHub SSH access to this repository. The supported desktop platform is macOS;
 Python 3.13 is required. Windows is not supported by the current runtime.
 
 ```sh
-uv tool install --python 3.13 'git+ssh://git@github.com/jnick26/report-usage.git@v0.1.0'
+uv tool install --python 3.13 'git+ssh://git@github.com/jnick26/report-usage.git@v0.1.1'
 harness-usage
 ```
 
@@ -24,7 +24,7 @@ with `uv tool install --force --python 3.13 <git-url-with-new-tag>`.
 
 ## Configure sources
 
-Open **Sources** and add the directories containing your local histories:
+On first launch, existing standard history directories are detected automatically:
 
 | Source | Typical macOS location |
 | --- | --- |
@@ -35,8 +35,17 @@ Open **Sources** and add the directories containing your local histories:
 | Copilot in VS Code Insiders | `~/Library/Application Support/Code - Insiders/User/workspaceStorage` |
 | Copilot CLI | `~/.copilot/session-state` |
 
-Configured homes/profiles can use different directories. Imports run on launch
-and when you choose **Refresh**. Original history files are read, not modified.
+Missing directories are skipped. Saved source settings (including an empty list)
+are preserved; explicit `--root` arguments replace them. You can inspect or edit
+the selected directories in **Sources**. If no directories are found, detection
+is retried on the next launch until you save a configuration.
+
+Home overrides are respected: `PI_CODING_AGENT_DIR`, `CODEX_HOME`,
+`CLAUDE_CONFIG_DIR`, and `COPILOT_HOME`. Custom VS Code user-data locations
+and other nonstandard paths can be added in **Sources** or with `--root`.
+Pi's `PI_CODING_AGENT_SESSION_DIR`, when set, takes precedence over its agent home.
+Imports run on launch and when you choose **Refresh**. Original history files
+are read, not modified.
 
 ```sh
 harness-usage --port 8766 --timezone Europe/Kyiv
