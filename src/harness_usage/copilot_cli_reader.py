@@ -17,7 +17,7 @@ from .pi_reader import (
     UsageRecord, _pending, _unique_object,
 )
 
-CLI_PROFILE = 'copilot-cli-events/e60d903-shape-1'
+CLI_PROFILE = 'copilot-cli-events/e60d903-shape-2'
 WORKSPACE_PROFILE = 'copilot-cli-workspace/unversioned'
 _LIMIT = 2**63
 _MAX_MAP = 1024
@@ -527,7 +527,7 @@ def _qualify_events(rows: list[tuple[int, dict[str, object]]], expected: str,
     started = _time(body.get('startTime'), millisecond=True)
     millis = _epoch_millis(started) if started is not None else None
     if (body.get('sessionId') != expected or type(body.get('version')) is not int
-            or body.get('version') != 1 or body.get('producer') not in ('copilot-cli', 'github-copilot-cli')
+            or body.get('version') != 1 or body.get('producer') not in ('copilot-cli', 'github-copilot-cli', 'copilot-agent')
             or _text(body.get('copilotVersion')) is None or started is None or millis is None
             or 'context' in body and not _valid_context(body['context'])):
         return RejectedSource((Diagnostic('conflicting_session_identity', start_line, start_id, None),))
@@ -543,14 +543,46 @@ def _qualify_events(rows: list[tuple[int, dict[str, object]]], expected: str,
             continue
         envelopes[index] = envelope
         positions[event_id] = index
-    rejected: set[str] = set()
-    for index, envelope in tuple(envelopes.items()):
-        event_id, parent, at, _ = envelope
-        if at < started:
+    for _, envelope in envelopes.items():
+        if envelope[2] < started:
             return RejectedSource((Diagnostic('invalid_session_lifetime', start_line, start_id, None),))
-        if parent is not None and (positions.get(parent, -1) >= index or parent in rejected):
+    parent_by_id = {envelope[0]: envelope[1] for envelope in envelopes.values()}
+    bad: set[str] = set()
+    safe: set[str] = set()
+    for node_id in parent_by_id:
+        if node_id in bad or node_id in safe:
+            continue
+        path: list[str] = []
+        path_index: dict[str, int] = {}
+        current = node_id
+        terminal_bad = False
+        terminal_safe = False
+        while True:
+            if current in bad:
+                terminal_bad = True
+                break
+            if current in safe:
+                terminal_safe = True
+                break
+            previous = path_index.get(current)
+            if previous is not None:
+                terminal_bad = True
+                break
+            path_index[current] = len(path)
+            path.append(current)
+            parent = parent_by_id[current]
+            if parent is None or parent not in parent_by_id:
+                terminal_safe = True
+                break
+            current = parent
+        if terminal_bad:
+            bad.update(path)
+        elif terminal_safe:
+            safe.update(path)
+    for index, envelope in tuple(envelopes.items()):
+        event_id, parent, _, _ = envelope
+        if event_id in bad:
             diagnostics.append(Diagnostic('invalid_event_chain', rows[index][0], event_id, None))
-            rejected.add(event_id)
             del envelopes[index]
         elif parent is not None and parent not in positions:
             diagnostics.append(Diagnostic('event_chain_gap', rows[index][0], event_id, None))

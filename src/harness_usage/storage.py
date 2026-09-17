@@ -281,20 +281,30 @@ class Storage:
     def _import_source(self, db: Connection, payload: SourcePayload) -> bool:
         locator, data = payload.locator, payload.data
         fingerprint = payload.fingerprint()
+        source_kind = detect_source(payload)
         previous = db.execute('SELECT * FROM source_generation WHERE locator=? ORDER BY generation DESC LIMIT 1', (locator,)).fetchone()
         from .claude_reader import PROFILE as CLAUDE_PROFILE
         from .copilot_vscode_reader import PROFILE as VSCODE_PROFILE, SUPPORTED_PROFILES as VSCODE_PROFILES
+        from .copilot_cli_reader import CLI_PROFILE as COPILOT_CLI_PROFILE
         legacy_vscode_projection = bool(previous and previous['profile'] in VSCODE_PROFILES
                                         and previous['profile'] != VSCODE_PROFILE)
         legacy_claude_projection = bool(
             previous and str(previous['profile']).startswith('claude-code/')
             and previous['profile'] != CLAUDE_PROFILE)
+        legacy_cli_projection = bool(
+            previous and str(previous['profile']).startswith('copilot-cli-events/')
+            and previous['profile'] != COPILOT_CLI_PROFILE)
         same_byte_claude_reprojection = bool(
             legacy_claude_projection and previous is not None
             and previous['sha256'] == fingerprint
             and previous['availability'] == 'available')
+        same_byte_reclassified_rejection = bool(
+            previous and previous['session_id'] is None
+            and previous['profile'] == PROFILE
+            and source_kind in ('codex', 'claude', 'copilot-vscode', 'copilot-cli'))
         if (previous and previous['sha256'] == fingerprint and previous['availability'] == 'available'
-                and not legacy_claude_projection and not legacy_vscode_projection):
+                and not legacy_claude_projection and not legacy_vscode_projection and not legacy_cli_projection
+                and not same_byte_reclassified_rejection):
             if previous['profile'] == PROFILE:
                 scanned = db.execute('SELECT profile FROM delegation_scan WHERE source_id=?', (previous['id'],)).fetchone()
                 if not scanned or scanned[0] != DELEGATION_PROFILE:
@@ -307,7 +317,6 @@ class Storage:
         from .copilot_vscode_reader import PROFILE as VSCODE_PROFILE, CopilotVscodeReadBatch, read_copilot_vscode
         from .copilot_cli_reader import (CLI_PROFILE, CopilotCLIReadBatch,
                                          read_copilot_cli)
-        source_kind = detect_source(payload)
         is_codex = source_kind == 'codex'
         is_claude = source_kind == 'claude'
         is_vscode = source_kind == 'copilot-vscode'

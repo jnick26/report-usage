@@ -79,7 +79,8 @@ def stage_runtime_sources(root):
         'unknown_tokens': {'pi': (0, 0, 0, 0, 0), 'codex': (1, 1, 1, 1, 1),
                            'claude': (0, 2, 0, 0, 2), 'copilot-vscode': (2, 0, 1, 3, 3),
                            'copilot-cli': (2, 1, 1, 1, 2)},
-        'money': {'pi': ('0', 1), 'codex': ('0.000702', 1), 'claude': ('0', 2),
+        # Claude reference subtotal: (10*3 + 4*0.3 + 3*3.75)/1M; output stays unknown.
+        'money': {'pi': ('0', 1), 'codex': ('0.000702', 1), 'claude': ('0.00004245', 2),
                   'copilot-vscode': ('0', 3), 'copilot-cli': ('0', 3)},
         'quantities': {('copilot-vscode', 'ai_credits'): ('0.5', 1, 0, 0),
                        ('copilot-cli', 'nano_aiu'): ('200', 1, 1, 0),

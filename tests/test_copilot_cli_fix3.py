@@ -157,6 +157,46 @@ def test_f3_known_cycle_and_descendants_cannot_project_direct_or_http_content(tm
     app.close()
 
 
+def test_f3_acyclic_forward_parent_keeps_descendants_and_shutdown_transcript(tmp_path):
+    rows = event_rows()
+    reordered = rows[:3] + [rows[4], rows[3], *rows[5:]]
+    payload = event_bytes(reordered)
+    batch = read_copilot_cli(payload, locator=cli_locator(tmp_path))
+    assert isinstance(batch, CopilotCLIReadBatch)
+    assert {item.line for item in batch.entries} == set(range(1, 9))
+    assert 'invalid_event_chain' not in {item.code for item in batch.diagnostics}
+    assert sum(item.source_kind == 'shutdown' for item in batch.evidence) >= 2
+    transcript = parse_copilot_cli_transcript(payload, SESSION, SESSION)
+    assert 'SYNTHETIC_USER' in repr(transcript)
+
+
+def test_f3_graph_profile_upgrade_reprojects_legacy_cli_and_third_import_is_noop(tmp_path):
+    rows = event_rows()
+    payload = event_bytes(rows[:3] + [rows[4], rows[3], *rows[5:]])
+    locator = cli_locator(tmp_path)
+    store = Storage(tmp_path / 'ledger.duckdb')
+    first_revision = store.import_source(locator, payload)
+    with store.connect(write=True) as db:
+        db.execute(
+            "UPDATE source_generation SET profile='copilot-cli-events/e60d903-shape-1' WHERE locator=?",
+            (locator,))
+    before = selected_rows(store)
+    second_revision = store.import_source(locator, payload)
+    assert second_revision > first_revision
+    assert selected_rows(store) == before
+    with store.connect() as db:
+        assert tuple(db.execute(
+            'SELECT generation,profile FROM source_generation ORDER BY generation')) == (
+                (0, 'copilot-cli-events/e60d903-shape-1'),
+                (1, 'copilot-cli-events/e60d903-shape-2'),
+            )
+    third_revision = store.import_source(locator, payload)
+    assert third_revision == second_revision
+    with store.connect() as db:
+        assert db.execute('SELECT count(*) FROM source_generation').one()[0] == 2
+    store.close()
+
+
 def test_f3_known_cycle_control_cannot_authorize_counters(tmp_path):
     payload = event_bytes(cycle_rows(control=True))
     batch = read_copilot_cli(payload, locator=cli_locator(tmp_path))

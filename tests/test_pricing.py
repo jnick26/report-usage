@@ -175,3 +175,85 @@ def test_group_pricing_skips_selected_not_applicable_and_keeps_large_exact_sums(
     assert grouped.known==Decimal('18446744073709.551616') and not grouped.unpriced
     assert len(grouped.calculations)==1
     assert (grouped.known,4*grouped.unpriced,aggregate([grouped])[2])==aggregate([individual]*4)
+
+
+@pytest.mark.parametrize(('provider', 'official', 'name'), [
+    ('claude-bridge', 'anthropic', 'claude-opus-5'),
+    ('claude-bridge', 'anthropic', 'claude-sonnet-5'),
+    ('claude-bridge', 'anthropic', 'claude-fable-5'),
+    ('claude-bridge', 'anthropic', 'claude-sonnet-4-6'),
+    (None, 'anthropic', 'claude-sonnet-4-6'),
+    ('github-copilot', 'anthropic', 'claude-sonnet-4-6'),
+    (None, 'openai', 'gpt-5.4'),
+    ('github-copilot', 'openai', 'gpt-5.4'),
+    (None, 'google', 'gemini-2.5-pro'),
+    ('github-copilot', 'google', 'gemini-2.5-pro'),
+])
+def test_exact_official_fallback_preserves_identity_and_context_tier(provider, official, name):
+    rates = catalog({'input': 1, 'output': 2, 'tiers': [
+        {'tier': {'type': 'context', 'size': 200}, 'input': 3, 'output': 4}]}, official, name)
+    model = ModelIdentity(provider, name)
+    result = rates.price(model, tokens(input=201), SELECTED)
+    assert result.known == Decimal('0.000683') and not result.unpriced
+    assert {line.model for line in result.calculations} == {model}
+    assert {line.source_provider for line in result.calculations} == {official}
+    assert {line.context_threshold for line in result.calculations} == {200}
+    assert rates.price_group(model, (201, 20, 0, 0), ('selected',) * 4, context_threshold=200) == result
+    partial = rates.price(model, tokens(input=Unknown('not_reported')), SELECTED)
+    assert partial.known == 0 and partial.unpriced
+    assert {line.reason for line in partial.calculations} == {'unknown_tokens', 'unknown_context_size'}
+    zero = rates.price(model, tokens(input=0, output=0), SELECTED)
+    assert zero.known == 0 and not zero.unpriced
+
+
+def test_official_fallback_is_exact_unique_and_does_not_override_direct_catalog():
+    cost = {'input': 1, 'output': 2}
+    raw = {provider: {'models': {'claude-sonnet-4-6': {'cost': cost}}}
+           for provider in ('anthropic', 'openai')}
+    raw['github-copilot'] = {'models': {'claude-sonnet-4-6': {'cost': {'input': 5, 'output': 10}}}}
+    rates = Catalog.from_bytes(json.dumps(raw).encode(), snapshot_date='fixture', sha256='fixture')
+    direct = rates.price(ModelIdentity('github-copilot', 'claude-sonnet-4-6'), tokens(), SELECTED)
+    assert direct.known == Decimal('0.0007')
+    assert {line.source_provider for line in direct.calculations} == {'github-copilot'}
+    for model in (ModelIdentity(None, 'claude-sonnet-4-6'),
+                  ModelIdentity('litellm', 'claude-sonnet-4-6'),
+                  ModelIdentity('claude-bridge', 'claude-sonnet-4.6'),
+                  ModelIdentity(None, None)):
+        result = rates.price(model, tokens(), SELECTED)
+        assert result.known == 0 and result.unpriced
+        assert {line.reason for line in result.calculations} == {'model_not_in_catalog'}
+    # A bridge explicitly names the Anthropic catalog; generic missing-provider evidence does not.
+    bridge = rates.price(ModelIdentity('claude-bridge', 'claude-sonnet-4-6'), tokens(), SELECTED)
+    assert bridge.known == Decimal('0.00014')
+    raw['github-copilot']['models']['claude-sonnet-4-6']['cost'] = {}
+    incomplete = Catalog.from_bytes(json.dumps(raw).encode(), snapshot_date='fixture', sha256='fixture')
+    result = incomplete.price(ModelIdentity('github-copilot', 'claude-sonnet-4-6'), tokens(), SELECTED)
+    assert result.unpriced and result.known == 0
+    assert {line.reason for line in result.calculations} == {'missing_category_rate'}
+
+
+@pytest.mark.parametrize(('recorded', 'canonical'), [
+    ('claude-haiku-4.5', 'claude-haiku-4-5'),
+    ('claude-opus-4.6', 'claude-opus-4-6'),
+    ('claude-opus-4.7', 'claude-opus-4-7'),
+    ('claude-opus-4.8', 'claude-opus-4-8'),
+    ('claude-sonnet-4.5', 'claude-sonnet-4-5'),
+    ('claude-sonnet-4.6', 'claude-sonnet-4-6'),
+])
+@pytest.mark.parametrize('provider', [None, 'github-copilot'])
+def test_retained_copilot_punctuation_aliases_are_explicit_and_keep_identity(recorded, canonical, provider):
+    rates = catalog({'input': 1, 'output': 2}, 'anthropic', canonical)
+    model = ModelIdentity(provider, recorded)
+    result = rates.price(model, tokens(), SELECTED)
+    assert result.known == Decimal('0.00014') and not result.unpriced
+    assert {line.model for line in result.calculations} == {model}
+    assert {line.source_provider for line in result.calculations} == {'anthropic'}
+    assert rates.price(ModelIdentity('litellm', recorded), tokens(), SELECTED).unpriced
+
+
+def test_fast_or_unknown_punctuation_variants_do_not_borrow_other_model_prices():
+    rates = catalog({'input': 1, 'output': 2}, 'anthropic', 'claude-opus-4-8')
+    for name in ('claude-opus-4.8-fast', 'claude-opus-4.9', 'Claude-opus-4.8'):
+        result = rates.price(ModelIdentity(None, name), tokens(), SELECTED)
+        assert result.known == 0 and result.unpriced
+        assert {line.reason for line in result.calculations} == {'model_not_in_catalog'}

@@ -27,7 +27,7 @@ COVERAGE_TEXT = {
     'unresolved_evidence': 'Unresolved usage is excluded from recorded totals.',
     'interval_only': 'Cumulative usage has no per-call timing.',
     'timing_unavailable': 'Usage with unavailable or partially overlapping timing cannot be allocated to this range.',
-    'unknown_model_identity': 'Actual model or provider is unavailable; complete pricing is unavailable.',
+    'unknown_model_identity': 'Recorded model or provider identity is incomplete.',
     'unassigned': 'Project attribution is unavailable.',
     'usage_unavailable': 'Usage unavailable',
     'usage_partial': 'Some usage is unavailable.',
@@ -580,5 +580,5 @@ def build_report(
     return Report(revision, query, tuple(projects), tuple(sessions), tokens, money, _buckets(rows, axis, prices, snapshot_date),
                   sums([row for row in rows if not isinstance(row.time, Point)])[0], tuple(coverage), models,
                   len(by_session), session_page, page_size, session_sort,
-                  quantity_rows((row.harness, value, dict(row.quantity_decisions)[value.measure])
+                  quantity_rows((row.harness, value, dict(row.quantity_decisions).get(value.measure, 'excluded'))
                                 for row in rows for value in row.quantities))

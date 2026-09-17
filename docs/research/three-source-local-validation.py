@@ -297,7 +297,7 @@ def raw_counts(data, path, count):
             kind = row.get('type')
             if kind == 'session.start':
                 count['cli_start_records'] += 1
-                count['cli_schema1_producer_records'] += int(type(payload.get('version')) is int and payload['version'] == 1 and payload.get('producer') in ('copilot-cli', 'github-copilot-cli'))
+                count['cli_schema1_producer_records'] += int(type(payload.get('version')) is int and payload['version'] == 1 and payload.get('producer') in ('copilot-cli', 'github-copilot-cli', 'copilot-agent'))
             if kind in ('session.shutdown', 'session.usage_checkpoint'):
                 count['cli_shutdown_records' if kind == 'session.shutdown' else 'cli_checkpoint_records'] += 1
                 count_fields(payload, count['cli_fields'])

@@ -61,6 +61,24 @@ def _valid_timestamp(value: object) -> bool:
         return False
 
 
+def _claude_record(value: dict[str, object]) -> bool:
+    """Recognize Claude metadata headers without routing arbitrary JSONL."""
+    if not isinstance(value.get('sessionId'), str) or not value['sessionId']:
+        return False
+    kind = value.get('type')
+    if kind in ('assistant', 'user', 'system', 'summary', 'progress'):
+        return True
+    if kind == 'queue-operation':
+        return (isinstance(value.get('operation'), str) and bool(value['operation'])
+                and _valid_timestamp(value.get('timestamp'))
+                and ('content' not in value or isinstance(value['content'], str)))
+    if kind == 'last-prompt':
+        return isinstance(value.get('leafUuid'), str) and bool(value['leafUuid'])
+    if kind == 'ai-title':
+        return isinstance(value.get('aiTitle'), str) and bool(value['aiTitle'])
+    return False
+
+
 def _cli_envelope(value: dict[str, object], *, durable: bool) -> dict[str, object] | None:
     data = value.get('data')
     identity, parent = value.get('id'), value.get('parentId')
@@ -114,8 +132,7 @@ def detect_source(payload: SourcePayload) -> SourceKind | None:
     codex = first.get('payload') if first is not None else None
     if first is not None and first.get('type') == 'session_meta' and isinstance(codex, dict) and isinstance(codex.get('id'), str):
         return 'codex'
-    if (first is not None and first.get('type') in ('assistant', 'user', 'system', 'summary', 'progress')
-            and isinstance(first.get('sessionId'), str)):
+    if first is not None and _claude_record(first):
         return 'claude'
     jsonl = path.suffix == '.jsonl'
     value = first if jsonl else _first_object(payload.data, jsonl=False)
@@ -139,7 +156,7 @@ def detect_source(payload: SourcePayload) -> SourceKind | None:
             return None
         if (value.get('type') == 'session.start' and isinstance(data.get('sessionId'), str)
                 and _number(data.get('version'))
-                and data.get('producer') in ('copilot-cli', 'github-copilot-cli')
+                and data.get('producer') in ('copilot-cli', 'github-copilot-cli', 'copilot-agent')
                 and isinstance(data.get('copilotVersion'), str)
                 and isinstance(data.get('startTime'), str)):
             return 'copilot-cli'

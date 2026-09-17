@@ -8,6 +8,17 @@ from harness_usage.storage import Storage
 PI_HEADER = b'{"type":"session","version":3,"id":"pi-session","cwd":"/work"}\n'
 CODEX_HEADER = b'{"type":"session_meta","payload":{"id":"codex-session","cwd":"/work"}}\n'
 CLAUDE_RECORD = b'{"type":"assistant","sessionId":"claude-session","uuid":"entry"}\n'
+CLAUDE_QUEUE_OPERATION = b'{"type":"queue-operation","operation":"enqueue","sessionId":"claude-session","timestamp":"2026-09-16T00:00:00Z"}\n'
+CLAUDE_LAST_PROMPT = b'{"type":"last-prompt","leafUuid":"leaf","sessionId":"claude-session"}\n'
+CLAUDE_AI_TITLE = b'{"type":"ai-title","aiTitle":"Synthetic title","sessionId":"claude-session"}\n'
+CLAUDE_METADATA_SOURCE = (
+    b'{"type":"queue-operation","operation":"enqueue","sessionId":"11111111-1111-4111-8111-111111111111",'
+    b'"timestamp":"2026-09-16T00:00:00Z"}\n'
+    b'{"type":"assistant","sessionId":"11111111-1111-4111-8111-111111111111",'
+    b'"uuid":"22222222-2222-4222-8222-222222222222","timestamp":"2026-09-16T00:00:01Z",'
+    b'"version":"2.1.141","message":{"id":"msg","model":"claude-opus-5",'
+    b'"usage":{"input_tokens":3,"output_tokens":2}}}\n'
+)
 VSCODE_V3 = json.dumps({
     'version': 3,
     'sessionId': 'vs-session',
@@ -28,6 +39,40 @@ def test_structural_detection_distinguishes_all_five_sources():
     assert detect_source(SourcePayload('/chatSessions/s.jsonl', VSCODE_V3_LOG)) == 'copilot-vscode'
     assert detect_source(SourcePayload('/session-state/s/events.jsonl', CLI_START)) == 'copilot-cli'
     assert detect_source(SourcePayload('/notes.jsonl', b'{"event":"other"}\n')) is None
+
+
+@pytest.mark.parametrize('data', (CLAUDE_QUEUE_OPERATION, CLAUDE_LAST_PROMPT, CLAUDE_AI_TITLE),
+                         ids=('queue-operation', 'last-prompt', 'ai-title'))
+def test_claude_metadata_first_records_are_structurally_detected(data):
+    assert detect_source(SourcePayload('/claude.jsonl', data)) == 'claude'
+
+
+@pytest.mark.parametrize('data', (
+    b'{"type":"queue-operation","sessionId":"claude-session","timestamp":"2026-09-16T00:00:00Z"}\n',
+    b'{"type":"last-prompt","sessionId":"claude-session"}\n',
+    b'{"type":"ai-title","sessionId":"claude-session"}\n',
+), ids=('queue-operation-missing-operation', 'last-prompt-missing-leaf', 'ai-title-missing-title'))
+def test_claude_metadata_detection_requires_type_specific_fields(data):
+    assert detect_source(SourcePayload('/claude.jsonl', data)) is None
+
+
+def test_same_byte_rejected_source_is_retried_after_detector_learns_claude_shape(tmp_path, monkeypatch):
+    from harness_usage import storage as storage_module
+
+    locator = str(tmp_path / '11111111-1111-4111-8111-111111111111.jsonl')
+    store = Storage(tmp_path / 'ledger.duckdb')
+    actual_detector = storage_module.detect_source
+    monkeypatch.setattr(storage_module, 'detect_source', lambda _payload: None)
+    store.import_source(locator, CLAUDE_METADATA_SOURCE)
+    monkeypatch.setattr(storage_module, 'detect_source', actual_detector)
+    store.import_source(locator, CLAUDE_METADATA_SOURCE)
+    with store.connect() as db:
+        assert tuple(db.execute(
+            'SELECT profile,session_id FROM source_generation ORDER BY generation')) == (
+                ('pi-v3/0.85.1-shape-1', None),
+                ('claude-code/2.1.273-shape-5', 'claude:11111111-1111-4111-8111-111111111111'),
+            )
+    store.close()
 
 
 def test_vscode_empty_initial_operation_log_is_structurally_detected_before_participant_filtering():
@@ -108,7 +153,7 @@ def test_storage_uses_exact_new_source_dispatch_and_sidecar_fingerprints(tmp_pat
         assert dict(db.execute('SELECT locator,profile FROM source_generation')) == {
             '/claude.jsonl': 'claude-code/2.1.273-shape-5',
             '/chatSessions/s.json': 'vscode-chat-v3/copilot-shape-2',
-            '/session-state/s/events.jsonl': 'copilot-cli-events/e60d903-shape-1',
+            '/session-state/s/events.jsonl': 'copilot-cli-events/e60d903-shape-2',
         }
         assert {row[0] for row in db.execute('SELECT code FROM diagnostic')} == {
             'conflicting_session_identity', 'missing_copilot_vscode_scope'}

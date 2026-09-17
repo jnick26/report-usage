@@ -72,6 +72,8 @@ normal usage and bundled pricing work offline.
   precedence; equal overlaps count once and conflicting valid pairs are unresolved.
 - Copilot CLI supports the qualified durable event format. Workspace-only older
   history has unavailable usage, not zero usage.
+  The separate `session-store.db` is not imported yet: its per-call records overlap
+  event-file summaries and cannot safely be added to those totals.
 - AI credits, nano-AIU, premium requests, request counts, recorded USD estimates,
   and API-equivalent cost estimates stay separate. None establishes your bill or
   subscription allocation. Selected model names alone are not priced.
@@ -82,6 +84,12 @@ normal usage and bundled pricing work offline.
 
 Pricing uses a bundled [models.dev](https://models.dev) snapshot; its license is
 included in the package. Unknown models or insufficient usage remain unpriced.
+Direct catalog matches take precedence. Claude Bridge uses Anthropic reference
+prices; Copilot models missing a direct match use an unambiguous official-provider
+match, including supported Claude spelling aliases. These are API-equivalent
+estimates, not billed charges; recorded model/provider identities stay unchanged.
+Models with no recorded provider, including Claude Code records, can also use
+an unambiguous official-provider reference match.
 
 ## Development
 

@@ -14,6 +14,14 @@ from .domain import ContractViolation, Known, ModelIdentity, NotApplicable, Toke
 Category = Literal['input', 'output', 'cache_read', 'cache_write']
 CATEGORIES: tuple[Category, ...] = ('input', 'output', 'cache_read', 'cache_write')
 ALIASES = {'openai-codex': 'openai'}
+COPILOT_MODEL_ALIASES = {
+    'claude-haiku-4.5': 'claude-haiku-4-5',
+    'claude-opus-4.6': 'claude-opus-4-6',
+    'claude-opus-4.7': 'claude-opus-4-7',
+    'claude-opus-4.8': 'claude-opus-4-8',
+    'claude-sonnet-4.5': 'claude-sonnet-4-5',
+    'claude-sonnet-4.6': 'claude-sonnet-4-6',
+}
 
 
 def exact_sum(values: Sequence[Decimal]) -> Decimal:
@@ -120,10 +128,28 @@ class Catalog:
                 models[(provider, identity)] = _Rates(_rates(cost), tuple(sorted(tiers)), invalid)
         return cls(models, snapshot_date, sha256)
 
+    def pricing_key(self, model: ModelIdentity) -> tuple[str, str] | None:
+        """Resolve a price reference, never an assertion about actual provider routing."""
+        provider = ALIASES.get(model.provider, model.provider) if model.provider is not None else None
+        if model.model is None:
+            return None
+        if provider is not None and (provider, model.model) in self.models:
+            return provider, model.model
+        official = ('anthropic',) if provider == 'claude-bridge' else (
+            ('openai', 'anthropic', 'google') if provider in (None, 'github-copilot') else ())
+        matches = [(name, model.model) for name in official if (name, model.model) in self.models]
+        if len(matches) == 1:
+            return matches[0]
+        if not matches and provider in (None, 'github-copilot'):
+            canonical = COPILOT_MODEL_ALIASES.get(model.model)
+            if canonical is not None and ('anthropic', canonical) in self.models:
+                return 'anthropic', canonical
+        return None
+
     def price(self, model: ModelIdentity, tokens: TokenEvidence,
               decisions: Sequence[tuple[str, str]], *, single_response: bool = True) -> ObservationCost:
-        provider = ALIASES.get(model.provider, model.provider) if model.provider is not None else None
-        profile = self.models.get((provider, model.model)) if provider is not None and model.model is not None else None
+        key = self.pricing_key(model)
+        profile = self.models.get(key) if key is not None else None
         threshold = None
         context_reason = None
         if profile is not None and not profile.invalid_tier and profile.tiers:
@@ -153,8 +179,9 @@ class Catalog:
         """
         if len(counts) != len(CATEGORIES) or len(states) != len(CATEGORIES):
             raise ContractViolation('invalid_pricing_group')
-        provider = ALIASES.get(model.provider, model.provider) if model.provider is not None else None
-        profile = self.models.get((provider, model.model)) if provider is not None and model.model is not None else None
+        key = self.pricing_key(model)
+        provider = key[0] if key is not None else None
+        profile = self.models.get(key) if key is not None else None
         rates = profile.base if profile is not None else (None,) * 4
         profile_reason = None if profile is not None else 'model_not_in_catalog'
         if profile is not None:

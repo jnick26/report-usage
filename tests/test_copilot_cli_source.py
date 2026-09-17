@@ -12,7 +12,7 @@ from harness_usage.application import Application
 from harness_usage.domain import Known, Unknown, Unassigned
 from harness_usage.pi_reader import RejectedSource
 from harness_usage.reporting import AllTime, ReportQuery
-from harness_usage.source_input import SourcePayload
+from harness_usage.source_input import SourcePayload, detect_source
 from harness_usage.storage import Storage
 from harness_usage.transcript import TranscriptUnavailable
 
@@ -46,6 +46,15 @@ def test_reader_uses_pinned_shape_profile_and_does_not_project_start_writer_vers
     start = next(item for item in result.evidence if item.source_kind == 'metadata')
     assert (start.event_schema_version, start.writer_version) == ('1', '1.0.0-synthetic')
     assert all(item.writer_version is None for item in result.evidence if item.source_kind != 'metadata')
+
+
+def test_reader_and_detector_accept_copilot_agent_producer(tmp_path):
+    rows = event_rows()
+    rows[0]['data']['producer'] = 'copilot-agent'
+    payload = event_bytes(rows)
+    locator = cli_locator(tmp_path)
+    assert detect_source(SourcePayload(locator, payload)) == 'copilot-cli'
+    assert isinstance(read_copilot_cli(payload, locator=locator), CopilotCLIReadBatch)
 
 
 def test_reader_accepts_only_session_level_durable_controls_and_ignores_assistant_usage(tmp_path):

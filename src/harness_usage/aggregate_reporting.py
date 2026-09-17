@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import cast
 
 from .domain import Assigned, Attribution, MeasuredQuantity, ModelIdentity, ObservationId, ProjectId, SessionId, Unassigned
-from .pricing import ALIASES, Catalog, ObservationCost, aggregate
+from .pricing import Catalog, ObservationCost, aggregate
 from .reporting import (DIAGNOSTIC_CODES, OVERLAP_USAGE_CODES, Coverage, Bucket, DateRange, ElapsedSpan, MetricSum, ModelRow, MoneySum,
                         ProjectRow, Report, ReportQuery, SessionRow, SessionSort, TokenSums,
                         UnknownElapsed, coverage_rows, project_label, quantity_rows, time_axis)
@@ -91,8 +91,14 @@ def build_aggregate_report(storage: Storage, query: ReportQuery, catalog: Catalo
         axis = time_axis(from_micros(endpoints[0]), from_micros(endpoints[1]), query)
         db.execute('CREATE TEMP TABLE axis(start_us BIGINT PRIMARY KEY,end_us BIGINT,bucket BIGINT)')
         db.executemany('INSERT INTO axis VALUES(?,?,?)', ((micros(start), micros(end), i) for i, (start, end) in enumerate(axis)))
-        db.execute('CREATE TEMP TABLE tiers(provider TEXT,model TEXT,boundary BIGINT,PRIMARY KEY(provider,model,boundary))')
-        db.executemany('INSERT INTO tiers VALUES(?,?,?)', ((p, m, boundary) for (p, m), rates in catalog.models.items() if not rates.invalid_tier for boundary, _ in rates.tiers))
+        db.execute('CREATE TEMP TABLE tiers(provider TEXT,model TEXT,boundary BIGINT)')
+        tiers: list[tuple[str | None, str, int]] = []
+        for recorded_provider, model_name in db.execute('SELECT DISTINCT provider,model FROM base'):
+            key = catalog.pricing_key(ModelIdentity(recorded_provider, model_name))
+            rates = catalog.models.get(key) if key is not None else None
+            if rates is not None and not rates.invalid_tier:
+                tiers.extend((recorded_provider, model_name, boundary) for boundary, _ in rates.tiers)
+        db.executemany('INSERT INTO tiers VALUES(?,?,?)', tiers)
         columns: list[str] = []
         joins = []
         for index, measure in enumerate((*MEASURES[:4], 'reported_total', 'cache_write_1h')):
@@ -111,9 +117,7 @@ def build_aggregate_report(storage: Storage, query: ReportQuery, catalog: Catalo
         total = f"CASE WHEN ({invalid}) OR ({subtotal})>=9223372036854775808 THEN NULL WHEN reported_total_state='known' THEN CASE WHEN reported_total_amount<({subtotal}) OR (({all_known}) AND reported_total_amount<>({subtotal})) THEN NULL ELSE reported_total_amount END WHEN reported_total_reason='invalid_count' THEN NULL WHEN {all_known} THEN ({subtotal}) ELSE NULL END"
         prompt = '+'.join(f'COALESCE(CAST({m}_amount AS HUGEINT),0)' for m in ('input', 'cache_read', 'cache_write'))
         unknown_prompt = ' OR '.join(f"{m}_state NOT IN ('known','not_applicable')" for m in ('input', 'cache_read', 'cache_write'))
-        alias_case = 'CASE v.provider ' + ' '.join('WHEN ? THEN ?' for _ in ALIASES) + ' ELSE v.provider END'
-        matching = f't.provider={alias_case} AND t.model=v.model'
-        alias_parameters = tuple(value for pair in ALIASES.items() for value in pair)
+        matching = 't.provider IS NOT DISTINCT FROM v.provider AND t.model=v.model'
         classified_sql = ('SELECT v.*,' + total + ' AS total_amount,'
                    + f"CASE WHEN EXISTS(SELECT 1 FROM tiers t WHERE {matching}) THEN CASE WHEN time_kind<>'point' THEN 'aggregate_context' WHEN {unknown_prompt} THEN 'unknown_context_size' END END AS context_reason,"
                    + f"CASE WHEN time_kind='point' AND NOT ({unknown_prompt}) THEN (SELECT MAX(boundary) FROM tiers t WHERE {matching} AND boundary<({prompt})) END AS context_threshold,"
@@ -136,7 +140,7 @@ def build_aggregate_report(storage: Storage, query: ReportQuery, catalog: Catalo
         # without writing and rereading per-observation intermediate tables.
         grouped_sql = ('WITH values_by_observation AS (' + values_sql + '), classified AS (' + classified_sql + ') '
                        + 'SELECT ' + ','.join((*dimensions, *aggregates)) + ' FROM classified GROUP BY ' + ','.join(group_by))
-        grouped = db.execute(grouped_sql, alias_parameters * 2).fetchall()
+        grouped = db.execute(grouped_sql).fetchall()
         groups = []
         for row in grouped:
             model = ModelIdentity(row['provider'], row['model'])

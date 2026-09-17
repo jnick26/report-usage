@@ -41,6 +41,46 @@ def visible(report):
                    sessions=tuple(replace(session, coverage=()) for session in report.sessions))
 
 
+@pytest.mark.parametrize(('provider', 'name'), [
+    ('claude-bridge', 'claude-sonnet-4-6'),
+    (None, 'claude-sonnet-4-6'), ('github-copilot', 'claude-sonnet-4-6'),
+    (None, 'claude-sonnet-4.6'), ('github-copilot', 'claude-sonnet-4.6'),
+])
+@pytest.mark.parametrize('kind', ['point', 'aggregate', 'unknown_context'])
+def test_official_pricing_fallback_has_identical_sql_response_tiers_and_identity(tmp_path, provider, kind, name):
+    cost = {'input': 1, 'output': 2, 'tiers': [
+        {'tier': {'type': 'context', 'size': 200}, 'input': 3, 'output': 4}]}
+    rates = Catalog.from_bytes(json.dumps({'anthropic': {'models': {'claude-sonnet-4-6': {'cost': cost}}}}).encode(),
+                               snapshot_date='fixture', sha256='fixture')
+    rows = [{'type': 'session', 'version': 3, 'id': 'pricing-fallback', 'timestamp': '2026-09-12T08:00:00Z'}]
+    for index, input_count in enumerate((150, 201)):
+        values = {'input': input_count, 'output': 20, 'cacheRead': 0, 'cacheWrite': 0}
+        if kind == 'unknown_context':
+            values.pop('input')
+        body = {'role': 'assistant', 'provider': provider, 'model': name, 'usage': values, 'stopReason': 'stop'}
+        entry = {'id': str(index), 'timestamp': '2026-09-12T09:00:00Z'}
+        rows.append(dict(entry, type='compaction', **body) if kind == 'aggregate'
+                    else dict(entry, type='message', message=body))
+    storage = Storage(tmp_path / 'pricing.duckdb')
+    storage.import_source('/synthetic-pricing.jsonl', ('\n'.join(map(json.dumps, rows)) + '\n').encode())
+    query = ReportQuery(None, AllTime())
+    for store in (storage, Storage(storage.path)):
+        data = store.report_input(query)
+        ordinary = build_report(data.contributions, revision=data.revision, query=query, catalog=rates)
+        actual = build_aggregate_report(store, query, rates)
+        assert actual == ordinary
+        assert actual.money.known == Decimal('0.000873' if kind == 'point' else '0')
+        assert actual.money.missing_observations == (0 if kind == 'point' else 2)
+        assert {line.model for line in actual.money.calculations} == {ModelIdentity(provider, name)}
+        assert {line.source_provider for line in actual.money.calculations} == {'anthropic'}
+        if kind == 'point':
+            assert {line.context_threshold for line in actual.money.calculations} == {None, 200}
+        if provider is None:
+            assert 'unknown_model_identity' in {entry.code for entry in actual.coverage}
+        assert build_aggregate_report(store, query, rates, include_sessions=False).money == actual.money
+        assert build_aggregate_report(store, query, rates, session_page=1).money == actual.money
+
+
 def test_repaired_same_locator_diagnostics_do_not_survive_reopen(tmp_path):
     locator = str(tmp_path / '11111111-1111-4111-8111-111111111111.jsonl')
     fixture = (FIXTURES / 'claude/versioned.jsonl').read_bytes()

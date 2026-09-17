@@ -189,7 +189,9 @@ def test_report_renders_stored_claude_harness_without_pi_fallback(tmp_path):
     assert 'Claude Code' in page
     assert 'Claude Code / Unknown provider / claude-sonnet-4-5' in page
     assert '<div class="small muted">Pi' not in page
-    assert 'Unpriced' in page
+    assert '&lt;$0.01' in page
+    assert 'Subtotal' in page
+    assert 'final output may be unavailable' in page
 
 
 def test_invalid_dates_retain_previous_query_and_display_inline_error():
