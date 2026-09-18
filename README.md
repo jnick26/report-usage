@@ -11,14 +11,14 @@ access to this repository over HTTPS or SSH. The supported desktop platform is m
 Python 3.13 is required. Windows is not supported by the current runtime.
 
 ```sh
-uv tool install --python 3.13 'git+https://github.com/jnick26/report-usage.git@v0.1.1'
+uv tool install --python 3.13 'git+https://github.com/jnick26/report-usage.git@v0.2.0'
 harness-usage
 ```
 
 SSH works too, if you prefer SSH-key authentication:
 
 ```sh
-uv tool install --python 3.13 'git+ssh://git@github.com/jnick26/report-usage.git@v0.1.1'
+uv tool install --python 3.13 'git+ssh://git@github.com/jnick26/report-usage.git@v0.2.0'
 ```
 
 For a private repository, authenticate Git for the chosen transport first.
