@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 import base64
 import binascii
 import json
 import re
 from typing import Literal, cast
+
+from .pricing import CostLine
 
 
 MAX_TRANSCRIPT_BYTES = 128 * 1024 * 1024
@@ -149,6 +152,7 @@ class Message:
     model: str | None = None
     phase: str | None = None
     timestamp: str | None = None
+    usage_id: str | None = None
 
     def __post_init__(self) -> None:
         _nonempty(self.id, "id")
@@ -159,6 +163,10 @@ class Message:
         for name, value in (("model", self.model), ("phase", self.phase), ("timestamp", self.timestamp)):
             if value is not None and not isinstance(value, str):
                 raise ValueError(f"{name} must be a string or None")
+        if self.usage_id is not None:
+            _nonempty(self.usage_id, 'usage_id')
+            if self.role != 'assistant':
+                raise ValueError('usage identity requires an assistant request')
 
 
 @dataclass(frozen=True, slots=True)
@@ -241,10 +249,31 @@ class TranscriptLink:
 
 
 @dataclass(frozen=True, slots=True)
+class TranscriptCostPoint:
+    message_id: str
+    amount: Decimal | None
+    cumulative: Decimal
+    incomplete: bool
+    cumulative_incomplete: bool
+    calculations: tuple[CostLine, ...] = ()
+
+    def __post_init__(self) -> None:
+        _nonempty(self.message_id, 'message_id')
+        for value in (self.amount, self.cumulative):
+            if value is not None and (not isinstance(value, Decimal) or not value.is_finite() or value < 0):
+                raise ValueError('cost must be a finite non-negative decimal')
+        if self.cumulative is None or type(self.incomplete) is not bool or type(self.cumulative_incomplete) is not bool:
+            raise ValueError('invalid cumulative cost state')
+        if not isinstance(self.calculations, tuple) or not all(isinstance(line, CostLine) for line in self.calculations):
+            raise ValueError('calculations must be immutable cost lines')
+
+
+@dataclass(frozen=True, slots=True)
 class TranscriptPage:
     transcript: Transcript
     parent: TranscriptLink | None = None
     children: tuple[TranscriptLink, ...] = ()
+    costs: tuple[TranscriptCostPoint, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.transcript, Transcript):
@@ -253,6 +282,8 @@ class TranscriptPage:
             raise ValueError("parent must be a TranscriptLink or None")
         if not isinstance(self.children, tuple) or not all(isinstance(child, TranscriptLink) for child in self.children):
             raise ValueError("children must be immutable transcript links")
+        if not isinstance(self.costs, tuple) or not all(isinstance(point, TranscriptCostPoint) for point in self.costs):
+            raise ValueError('costs must be immutable cost points')
 
 
 @dataclass(frozen=True, slots=True)
@@ -373,5 +404,5 @@ __all__ = [
     "MAX_IMAGE_BYTES", "MAX_TRANSCRIPT_BYTES", "Message", "MessageBlock", "MessageRole",
     "Notice", "OutputBlock", "OutputStatus", "ReasoningBlock", "RecordedOutput",
     "TextBlock", "ToolBlock", "Transcript", "TranscriptEntry", "TranscriptLink",
-    "TranscriptPage", "TranscriptUnavailable", "read_jsonl", "text_and_media_blocks",
+    "TranscriptPage", "TranscriptCostPoint", "TranscriptUnavailable", "read_jsonl", "text_and_media_blocks",
 ]

@@ -27,6 +27,11 @@ compared as multisets excluding local row IDs, preserving call multiplicity.
 
 Reconcile native CLI events first, then apply a separate database reconciliation
 step. Never pass per-call database rows through cumulative event reconciliation.
+DB sessions.created_at is display metadata, not an epoch marker. Overlap
+qualification requires the same session UUID, one unambiguous retained native
+JSON counter epoch, all relevant calls within its start-to-selected-shutdown
+interval, and comparable full raw usage/request-count vectors. Time alone is
+not a proof of completeness; equality of the vectors permits detail substitution.
 
 - Qualified, equal DB and JSON usage vectors: choose one representation, using
   database detail where the complete compatible scope is proven.

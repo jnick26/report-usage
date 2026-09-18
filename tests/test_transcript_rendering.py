@@ -373,17 +373,12 @@ def test_browser_search_caps_rendered_marks_for_large_transcripts() -> None:
     assert "'1000+'" in javascript
 
 
-def test_ruler_density_and_section_tracking_for_long_histories() -> None:
+def test_section_tracking_for_long_histories_uses_bounded_lookups() -> None:
     javascript = Path('src/harness_usage/static/transcript.js').read_text()
     probe = (
         "const vm=require('node:vm'), assert=require('node:assert/strict');"
         "const context={document:{addEventListener(){}}};"
         f"vm.runInNewContext({json.dumps(javascript)},context);"
-        "assert.equal(context.transcriptTickHeight(10,500),18);"
-        "assert.equal(context.transcriptTickHeight(40,500),12.5);"
-        "assert.equal(context.transcriptTickHeight(5000,500),10);"
-        "assert.equal(context.transcriptTickHeight(5000,500,true),44);"
-        "assert.equal(context.transcriptTickHeight(0,0),10);"
         "const tops=[-500,-100,40,800];"
         "assert.equal(context.transcriptSectionIndex(4,i=>tops[i],50),2);"
         "assert.equal(context.transcriptSectionIndex(4,i=>tops[i],-600),-1);"
@@ -394,7 +389,7 @@ def test_ruler_density_and_section_tracking_for_long_histories() -> None:
     subprocess.run(['node', '-e', probe], check=True, capture_output=True, text=True)
 
 
-def test_history_rail_contains_only_user_inputs_in_order() -> None:
+def test_removed_history_rail_preserves_all_content_in_order() -> None:
     rendered = render_transcript(page_with(
         Message('system', 'system', (TextBlock('background system'),)),
         Message('first', 'user', (TextBlock('first request'),)),
@@ -403,8 +398,6 @@ def test_history_rail_contains_only_user_inputs_in_order() -> None:
         Message('second', 'user', (TextBlock('second request'),)),
         Message('tool', 'assistant', (ToolBlock('call', 'Run', 'arguments retained'),)),
     ))
-    rail = rendered.split('<nav class="history-rail"', 1)[1].split('</nav>', 1)[0]
-    assert rail.count('class="history-tick') == 2
-    assert rail.index('first request') < rail.index('second request')
-    assert all(text not in rail for text in ('background system', 'answer retained', 'inherited request', 'arguments retained'))
+    assert 'history-rail' not in rendered
+    assert rendered.index('first request') < rendered.index('second request')
     assert all(text in rendered for text in ('background system', 'answer retained', 'inherited request', 'arguments retained'))

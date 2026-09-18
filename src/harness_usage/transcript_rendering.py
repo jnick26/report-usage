@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from base64 import b64encode
 from dataclasses import dataclass
+from decimal import Decimal, ROUND_FLOOR, localcontext
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -14,6 +15,7 @@ from markdown_it import MarkdownIt
 from markupsafe import Markup
 
 from .presentation import harness_label
+from .pricing import exact_sum
 from .transcript import (
     AttachmentBlock,
     ConflictingOutput,
@@ -24,6 +26,7 @@ from .transcript import (
     RecordedOutput,
     TextBlock,
     ToolBlock,
+    TranscriptCostPoint,
     TranscriptPage,
 )
 
@@ -81,6 +84,8 @@ class _MessageView:
     label: str
     model: str | None
     segments: tuple[_Segment, ...]
+    cost: TranscriptCostPoint | None
+    request_number: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,22 +105,21 @@ class _ActivityBatch:
     summary: str
 
 
-type _EntryView = _MessageView | _NoticeView | _ContextGroup | _ActivityBatch
-
-
 @dataclass(frozen=True, slots=True)
-class _RailItem:
-    anchor: str
-    label: str
-    excerpt: str
-    tool: bool = False
+class _MetadataGroup:
+    notices: tuple[_NoticeView, ...]
+
+
+type _EntryView = _MessageView | _NoticeView | _ContextGroup | _ActivityBatch | _MetadataGroup
 
 
 @dataclass(frozen=True, slots=True)
 class _View:
     page: TranscriptPage
     entries: tuple[_EntryView, ...]
-    rail: tuple[_RailItem, ...]
+    cost_points: tuple[dict[str, str | float | bool], ...]
+    cost_buckets: tuple[dict[str, object], ...]
+    priced_requests: int
     parent_href: str | None
     children: tuple[tuple[str, str], ...]
     transcript_href: str
@@ -186,7 +190,12 @@ def _excerpt(message: Message) -> str:
 
 def _view(page: TranscriptPage) -> _View:
     entries: list[_EntryView] = []
-    rail: list[_RailItem] = []
+    metadata: list[_NoticeView] = []
+    cost_points: list[dict[str, str | float | bool]] = []
+    displayed_costs: list[TranscriptCostPoint] = []
+    costs = {point.message_id: (index, point) for index, point in enumerate(page.costs, 1)}
+    maximum = page.costs[-1].cumulative if page.costs else Decimal(0)
+    priced_requests = 0
     previous_model = page.transcript.model
     role_labels = {
         "user": "User",
@@ -199,7 +208,11 @@ def _view(page: TranscriptPage) -> _View:
     for entry in page.transcript.entries:
         anchor = _entry_anchor(entry)
         if isinstance(entry, Notice):
-            entries.append(_NoticeView(entry, anchor))
+            notice = _NoticeView(entry, anchor)
+            if entry.label == 'Extension state':
+                metadata.append(notice)
+            else:
+                entries.append(notice)
             continue
         label = role_labels[entry.role]
         segments: list[_Segment] = []
@@ -237,7 +250,20 @@ def _view(page: TranscriptPage) -> _View:
         model = entry.model if entry.model and entry.model != previous_model else None
         if entry.model:
             previous_model = entry.model
-        entries.append(_MessageView(entry, anchor, label, model, tuple(segments)))
+        number, cost = costs.get(entry.id, (None, None))
+        if cost is not None:
+            displayed_costs.append(cost)
+            priced_requests += cost.amount is not None
+            request_model = next((line.model.model for line in cost.calculations if line.model.model), None)
+            cost_points.append(dict(anchor=anchor, model=request_model or entry.model or 'Unknown model',
+                                    excerpt=_excerpt(entry), amount_label=_cost_label(cost).removeprefix('Est. '),
+                                    total_label=_display_usd(cost.cumulative, cost.cumulative_incomplete)
+                                    if priced_requests else 'Cost unavailable',
+                                    total_exact=('≥' if cost.cumulative_incomplete else '') + _usd(cost.cumulative)
+                                    if priced_requests else 'Cost unavailable',
+                                    ratio=float(cost.cumulative / maximum) if maximum else 0.0,
+                                    unknown=cost.amount is None, incomplete=cost.cumulative_incomplete))
+        entries.append(_MessageView(entry, anchor, label, model, tuple(segments), cost, number))
     grouped_entries: list[_EntryView] = []
     context_messages: list[_MessageView] = []
 
@@ -292,11 +318,8 @@ def _view(page: TranscriptPage) -> _View:
             flush_activity()
             display_entries.append(item)
     flush_activity()
-    rail.extend(
-        _RailItem(item.anchor, "User message", _excerpt(item.entry))
-        for item in display_entries
-        if isinstance(item, _MessageView) and item.entry.role == "user"
-    )
+    if metadata:
+        display_entries.append(_MetadataGroup(tuple(metadata)))
     selected = page.transcript.selected_branch
     query = f"branch={quote(selected, safe='')}" if selected else ""
     transcript_href = _path(page.transcript.session_id)
@@ -306,7 +329,9 @@ def _view(page: TranscriptPage) -> _View:
     return _View(
         page,
         tuple(display_entries),
-        tuple(rail),
+        tuple(cost_points),
+        _cost_buckets(tuple(displayed_costs)),
+        priced_requests,
         _path(page.parent.session_id) if page.parent else None,
         tuple((_path(child.session_id), child.title) for child in page.children),
         transcript_href,
@@ -316,6 +341,43 @@ def _view(page: TranscriptPage) -> _View:
 
 def _source(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _usd(value: Decimal) -> str:
+    text = format(value, 'f')
+    return '$' + (text.rstrip('0').rstrip('.') if '.' in text else text)
+
+
+def _cost_label(point: TranscriptCostPoint) -> str:
+    if point.amount is None:
+        return 'Cost unavailable'
+    return 'Est. ' + _display_usd(point.amount, point.incomplete)
+
+
+def _display_usd(value: Decimal, incomplete: bool = False) -> str:
+    if 0 < value < Decimal('0.01'):
+        return '≥' + _usd(value) if incomplete else '<$0.01'
+    with localcontext() as context:
+        context.prec = max(len(value.as_tuple().digits), value.adjusted() + 3, 28)
+        amount = value.quantize(Decimal('0.01'), rounding=ROUND_FLOOR) if incomplete else value
+        return ('≥' if incomplete else '') + f'${amount:.2f}'
+
+
+def _cost_buckets(costs: tuple[TranscriptCostPoint, ...]) -> tuple[dict[str, object], ...]:
+    size = max(1, (len(costs) + 95) // 96)
+    groups = [costs[start:start + size] for start in range(0, len(costs), size)]
+    totals = [exact_sum([point.amount for point in group if point.amount is not None]) for group in groups]
+    maximum = max(totals, default=Decimal(0))
+    buckets: list[dict[str, object]] = []
+    for index, (group, total) in enumerate(zip(groups, totals)):
+        unknown = all(point.amount is None for point in group)
+        incomplete = any(point.incomplete or point.amount is None for point in group)
+        buckets.append(dict(start=index * size, end=min((index + 1) * size, len(costs)),
+                            amount=None if unknown else format(total, 'f'),
+                            label='Cost unavailable' if unknown else _display_usd(total, incomplete),
+                            ratio=float(total / maximum) if maximum else 0.0,
+                            unknown=unknown, incomplete=incomplete))
+    return tuple(buckets)
 
 
 def _markdown(text: str) -> Markup:
@@ -365,6 +427,7 @@ def render_transcript(page: TranscriptPage, *, standalone: bool = False) -> str:
         ContextGroup=_ContextGroup,
         ImageBlock=ImageBlock,
         MessageView=_MessageView,
+        MetadataGroup=_MetadataGroup,
         NoticeView=_NoticeView,
         ReasoningBlock=ReasoningBlock,
         RecordedOutput=RecordedOutput,
@@ -374,6 +437,9 @@ def render_transcript(page: TranscriptPage, *, standalone: bool = False) -> str:
     )
     environment.filters["safe_markdown"] = _markdown
     environment.filters["harness_label"] = harness_label
+    environment.filters["cost_label"] = _cost_label
+    environment.filters["exact_usd"] = _usd
+    environment.filters["axis_usd"] = lambda value: f'${value:.3g}'
     template = environment.get_template("transcript.html")
     return template.render(
         view=_view(page),

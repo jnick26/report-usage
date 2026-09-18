@@ -177,7 +177,10 @@ def _project_node(
         if not isinstance(body, dict):
             warnings.append(f"Line {node.line} has an invalid message object.")
             return [Notice(local_id, "Unreadable Pi message", "The recorded message shape is unsupported.")]
-        return [_project_message(cast(dict[str, object], body), node.line, local_id, warnings, timestamp=timestamp)]
+        projected = _project_message(cast(dict[str, object], body), node.line, local_id, warnings, timestamp=timestamp)
+        if isinstance(projected, Message) and projected.role == 'assistant':
+            projected = replace(projected, usage_id=node.id)
+        return [projected]
     if kind == "custom_message":
         body = {
             "role": "custom", "content": raw.get("content"), "display": raw.get("display"),

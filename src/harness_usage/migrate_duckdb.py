@@ -1,4 +1,4 @@
-"""Atomic native DuckDB schema-5 to schema-6 migration."""
+"""Atomic upgrades of retained native DuckDB ledgers."""
 from collections.abc import Sequence
 import hashlib
 import os
@@ -51,7 +51,7 @@ def schema_version(path: Path) -> int | None:
 def _copy_table(source: duckdb.DuckDBPyConnection, target: duckdb.DuckDBPyConnection,
                 table: str, columns: Sequence[str]) -> None:
     names = ','.join(columns)
-    expression = 'singleton,6 AS schema_version,revision' if table == 'ledger_meta' else names
+    expression = 'singleton,7 AS schema_version,revision' if table == 'ledger_meta' else names
     cursor = source.execute(f'SELECT {expression} FROM {table} ORDER BY ALL')
     placeholders = ','.join('?' for _ in columns)
     while rows := cursor.fetchmany(16384):
@@ -79,7 +79,7 @@ def _fsync_directory(path: Path) -> None:
 
 
 def migrate_duckdb_v5(path: Path) -> None:
-    """Replace a closed schema-5 ledger only after a verified schema-6 copy."""
+    """Replace a closed schema-5 ledger only after a verified current-schema copy."""
     path = path.resolve()
     if schema_version(path) != 5:
         raise ValueError('unsupported_schema')
@@ -133,3 +133,26 @@ def migrate_duckdb_v5(path: Path) -> None:
             source.close()
         except duckdb.ConnectionException:
             pass
+
+
+def migrate_duckdb_v6(path: Path) -> None:
+    """Add store provenance atomically without rewriting retained observations."""
+    raw = open_database(path)
+    try:
+        raw.execute('BEGIN')
+        if raw.execute('SELECT schema_version FROM ledger_meta').fetchone() != (6,):
+            raise ValueError('unsupported_schema')
+        schema = Path(__file__).with_name('schema.sql').read_text()
+        raw.execute(schema.split('-- Copilot session-store provenance.', 1)[1])
+        raw.execute('ALTER TABLE ledger_meta RENAME TO ledger_meta_v6')
+        raw.execute('CREATE TABLE ledger_meta(singleton BIGINT PRIMARY KEY CHECK(singleton=1),'
+                    'schema_version BIGINT NOT NULL CHECK(schema_version=7),'
+                    'revision BIGINT NOT NULL CHECK(revision>=0))')
+        raw.execute('INSERT INTO ledger_meta SELECT singleton,7,revision FROM ledger_meta_v6')
+        raw.execute('DROP TABLE ledger_meta_v6')
+        raw.commit()
+    except BaseException:
+        raw.rollback()
+        raise
+    finally:
+        raw.close()

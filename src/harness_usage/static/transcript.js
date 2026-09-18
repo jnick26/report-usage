@@ -10,9 +10,30 @@ function transcriptMatchRanges(value, term, limit = Infinity) {
   return ranges;
 }
 
-// Keep ticks readable; very long histories remain independently scrollable.
-function transcriptTickHeight(count, available, coarse = false) {
-  return coarse ? 44 : Math.max(10, Math.min(18, available / Math.max(1, count)));
+function transcriptCostIndex(count, fraction) {
+  return Math.max(0, Math.min(count - 1, Math.ceil(fraction * count) - 1));
+}
+
+function transcriptCostPaths(points) {
+  const paths = {known: '', partial: '', gaps: ''};
+  let x = 0, y = 100;
+  points.forEach((point, index) => {
+    const nextX = (index + 1) / points.length * 1000;
+    const nextY = 100 - point.ratio * 100;
+    if (point.unknown) paths.gaps += `M${nextX},0V100`;
+    else paths[point.incomplete ? 'partial' : 'known'] += `M${x},${y}H${nextX}V${nextY}`;
+    x = nextX; y = nextY;
+  });
+  return paths;
+}
+
+function transcriptReveal(target, thread, scroll = false) {
+  if (!target) return;
+  for (let parent = target; parent && parent !== thread; parent = parent.parentElement) {
+    if (parent.tagName === 'DETAILS') parent.open = true;
+  }
+  if (scroll) target.scrollIntoView({block: 'start',
+    behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'});
 }
 
 function transcriptSectionIndex(count, topAt, readingLine) {
@@ -107,11 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('branch-selector')?.addEventListener('change', event => event.currentTarget.form.requestSubmit());
   function openTarget(target, scroll = false) {
-    if (!target) return;
-    for (let parent = target; parent && parent !== thread; parent = parent.parentElement) {
-      if (parent instanceof HTMLDetailsElement) parent.open = true;
-    }
-    if (scroll) target.scrollIntoView({block: 'start'});
+    transcriptReveal(target, thread, scroll);
   }
 
   function openHash() {
@@ -131,88 +148,128 @@ document.addEventListener('DOMContentLoaded', () => {
         copy.textContent = 'Select text to copy';
       }
     }
-    const tick = event.target.closest('.history-tick');
-    if (tick) openTarget(document.getElementById(tick.hash.slice(1)));
   });
   window.addEventListener('hashchange', openHash);
-  const rail = document.querySelector('.history-rail');
   const toolbar = document.querySelector('.toolbar-shell');
-  const ticks = [...rail.querySelectorAll('.history-tick')];
-  const sections = ticks.map(tick => {
-    let section = document.getElementById(tick.hash.slice(1));
-    while (section && section.parentElement !== thread) section = section.parentElement;
-    return section;
-  });
-  const preview = document.createElement('div');
-  preview.className = 'rail-preview';
-  preview.setAttribute('role', 'tooltip');
-  preview.hidden = true;
-  document.body.append(preview);
-  let activeTick = null;
+  const timeline = document.getElementById('cost-timeline');
+  const points = timeline ? JSON.parse(timeline.dataset.costPoints) : [];
+  const targets = points.map(point => document.getElementById(point.anchor));
+  const selector = document.getElementById('cost-histogram');
+  const buckets = timeline ? JSON.parse(timeline.dataset.costBuckets) : [];
+  const bars = selector ? [...selector.querySelectorAll('.cost-bar')] : [];
+  const selection = document.getElementById('cost-selection');
+  const jump = document.getElementById('cost-jump');
+  const preview = document.getElementById('cost-preview');
+  const cursor = document.getElementById('cost-cursor');
+  const svg = document.getElementById('cost-plot');
+  let selected = -1;
+  let explicitSelection = false;
   let scheduled = false;
 
-  function revealTick(tick) {
-    if (!tick || rail.matches(':hover') || rail.contains(document.activeElement)) return;
-    const box = rail.getBoundingClientRect();
-    const target = tick.getBoundingClientRect();
-    if (target.top < box.top || target.bottom > box.bottom) {
-      rail.scrollTop += (target.top + target.bottom - box.top - box.bottom) / 2;
+  function describe(index) {
+    const point = points[index];
+    return `Response ${index + 1} of ${points.length} · This response ${point.amount_label} · Total so far ${point.total_label}`;
+  }
+
+  function select(index, scroll = false) {
+    if (!points[index]) return;
+    targets[selected]?.classList.remove('cost-selected');
+    selected = index;
+    targets[index]?.classList.add('cost-selected');
+    selector.setAttribute('aria-valuenow', String(index + 1));
+    selector.setAttribute('aria-valuetext', describe(index));
+    bars.forEach((bar, i) => bar.classList.toggle('selected', index >= buckets[i].start && index < buckets[i].end));
+    selection.textContent = describe(index);
+    jump.href = '#' + points[index].anchor;
+    cursor.setAttribute('cx', String((index + 1) / points.length * 1000));
+    cursor.setAttribute('cy', String(100 - points[index].ratio * 100));
+    if (scroll) {
+      explicitSelection = true;
+      openTarget(targets[index], true);
+      history.replaceState(null, '', '#' + points[index].anchor);
     }
   }
 
-  function updateRail() {
+  function updatePosition() {
     scheduled = false;
+    timeline?.classList.toggle('compact', toolbar.getBoundingClientRect().top <= 0 && scrollY > 0);
     const top = toolbar.getBoundingClientRect().height + 16;
-    document.documentElement.style.setProperty('--rail-top', `${top}px`);
-    const bottom = Math.min(innerHeight - 16, thread.getBoundingClientRect().bottom);
-    const available = Math.max(0, bottom - Math.max(top, rail.getBoundingClientRect().top));
-    rail.style.maxHeight = `${available}px`;
-    rail.style.setProperty('--tick-height', `${transcriptTickHeight(ticks.length,
-      available, matchMedia('(pointer:coarse)').matches)}px`);
-    if (!ticks.length) return;
+    document.documentElement.style.setProperty('--toolbar-height', `${top}px`);
+    if (!points.length || explicitSelection) return;
     const atEnd = scrollY + innerHeight >= document.documentElement.scrollHeight - 2;
-    const index = atEnd ? ticks.length - 1 : transcriptSectionIndex(sections.length,
-      i => sections[i].getBoundingClientRect().top, top + 16);
-    const tick = ticks[index] ?? null;
-    if (activeTick !== tick) {
-      activeTick?.removeAttribute('aria-current');
-      tick?.setAttribute('aria-current', 'location');
-      activeTick = tick;
-    }
-    revealTick(tick);
+    const index = atEnd ? points.length - 1 : transcriptSectionIndex(targets.length, i => {
+      let target = targets[i];
+      for (let parent = target.parentElement; parent && parent !== thread; parent = parent.parentElement) {
+        if (parent.tagName === 'DETAILS' && !parent.open) target = parent;
+      }
+      return target.getBoundingClientRect().top;
+    }, top + 16);
+    if (index >= 0 && index !== selected) select(index);
   }
 
-  function scheduleRail() {
+  function schedulePosition() {
     if (!scheduled) {
       scheduled = true;
-      requestAnimationFrame(updateRail);
+      requestAnimationFrame(updatePosition);
     }
   }
 
-  function showPreview(event) {
-    const tick = event.target.closest('.history-tick');
-    if (!tick) return;
-    const source = tick.querySelector('.history-preview');
-    preview.replaceChildren(...[...source.children].map(child => child.cloneNode(true)));
-    preview.hidden = false;
-    const box = tick.getBoundingClientRect();
-    preview.style.left = `${Math.max(8, Math.min(box.right + 12, innerWidth - preview.offsetWidth - 8))}px`;
-    preview.style.top = `${Math.max(8, Math.min(box.top, innerHeight - preview.offsetHeight - 8))}px`;
+  if (points.length) {
+    const paths = transcriptCostPaths(points);
+    for (const name of ['known', 'partial', 'gaps']) document.getElementById('cost-' + name).setAttribute('d', paths[name]);
+    function pointerIndex(event, surface = svg) {
+      const box = surface.getBoundingClientRect();
+      const fraction = (event.clientX - box.left) / box.width;
+      return transcriptCostIndex(points.length, fraction);
+    }
+    svg.addEventListener('pointermove', event => {
+      const index = pointerIndex(event);
+      preview.textContent = describe(index) + ' · ' + points[index].model + ' — ' + points[index].excerpt;
+      preview.hidden = false;
+    });
+    svg.addEventListener('pointerleave', () => { preview.hidden = true; });
+    svg.addEventListener('click', event => { preview.hidden = true; select(pointerIndex(event), true); });
+    selector.addEventListener('pointermove', event => {
+      const index = pointerIndex(event, selector);
+      const bucket = buckets.find(item => index >= item.start && index < item.end);
+      preview.textContent = `Responses ${bucket.start + 1}–${bucket.end} · Group cost ${bucket.label} · ` + describe(index);
+      preview.hidden = false;
+    });
+    selector.addEventListener('pointerleave', () => { preview.hidden = true; });
+    selector.addEventListener('click', event => { preview.hidden = true; select(pointerIndex(event, selector), true); });
+    selector.addEventListener('keydown', event => {
+      let index = selected;
+      if (event.key === 'ArrowRight' || event.key === 'ArrowUp') index++;
+      else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') index--;
+      else if (event.key === 'Home') index = 0;
+      else if (event.key === 'End') index = points.length - 1;
+      else return;
+      event.preventDefault();
+      select(Math.max(0, Math.min(points.length - 1, index)), true);
+    });
+    jump.addEventListener('click', event => { event.preventDefault(); select(selected, true); });
+    select(0);
   }
-  rail.addEventListener('pointerover', showPreview);
-  rail.addEventListener('focusin', showPreview);
-  rail.addEventListener('pointerleave', () => { preview.hidden = true; scheduleRail(); });
-  rail.addEventListener('focusout', () => { preview.hidden = true; });
-  rail.addEventListener('scroll', () => { preview.hidden = true; }, {passive: true});
-  window.addEventListener('scroll', () => { preview.hidden = true; scheduleRail(); }, {passive: true});
-  window.addEventListener('resize', scheduleRail);
-  thread.addEventListener('toggle', scheduleRail, true);
-  thread.addEventListener('load', scheduleRail, true);
+  // Programmatic scrolling can settle late or at a clamped position. Keep the
+  // chosen response until the reader starts scrolling, not for an arbitrary timer.
+  const resumeFollowing = () => { explicitSelection = false; };
+  window.addEventListener('wheel', resumeFollowing, {passive: true});
+  window.addEventListener('touchstart', resumeFollowing, {passive: true});
+  window.addEventListener('pointerdown', event => {
+    if (!timeline?.contains(event.target)) resumeFollowing();
+  }, {passive: true});
+  window.addEventListener('keydown', event => {
+    if (!event.defaultPrevented && ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) resumeFollowing();
+  });
+  window.addEventListener('scroll', schedulePosition, {passive: true});
+  window.addEventListener('resize', schedulePosition);
+  thread.addEventListener('toggle', schedulePosition, true);
+  thread.addEventListener('load', schedulePosition, true);
   if ('ResizeObserver' in window) {
-    const resize = new ResizeObserver(scheduleRail);
+    const resize = new ResizeObserver(schedulePosition);
     resize.observe(toolbar);
     resize.observe(thread);
   }
-  updateRail();
+  updatePosition();
   openHash();
 });

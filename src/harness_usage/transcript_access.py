@@ -5,6 +5,7 @@ from pathlib import Path
 import stat
 
 from .storage import Storage
+from .pricing import Catalog, load_bundled_catalog
 from .transcript import MAX_TRANSCRIPT_BYTES, TranscriptLink, TranscriptPage, TranscriptUnavailable
 
 
@@ -48,13 +49,14 @@ def source_snapshot(locator: str, roots: tuple[str, ...]) -> bytes:
 
 
 def read_transcript_page(storage: Storage, roots: tuple[str, ...], session_id: str,
-                         branch: str | None = None) -> TranscriptPage:
+                         branch: str | None = None, *, catalog: Catalog | None = None) -> TranscriptPage:
     from .codex_transcript import parse_codex_transcript
     from .claude_reader import claude_locator_identity
     from .claude_transcript import parse_claude_transcript
     from .copilot_vscode_reader import SUPPORTED_PROFILES as VSCODE_PROFILES
     from .copilot_vscode_transcript import parse_copilot_vscode_transcript
     from .copilot_cli_transcript import parse_copilot_cli_transcript
+    from .copilot_store_transcript import read_store_transcript
     from .pi_transcript import parse_pi_transcript
 
     with storage.connect() as db:
@@ -89,12 +91,19 @@ def read_transcript_page(storage: Storage, roots: tuple[str, ...], session_id: s
             locator_predicate = 'g.locator=?' if session['parent_locator'] is not None else 'g.session_id=?'
             locator_value = session['parent_locator'] or session_id
             sources = db.execute(
-                'SELECT g.locator FROM source_generation g WHERE ' + locator_predicate +
+                'SELECT g.locator,0 AS store FROM source_generation g WHERE ' + locator_predicate +
                 " AND g.availability='available' "
                 'AND NOT EXISTS (SELECT 1 FROM source_generation newer '
                 'WHERE newer.locator=g.locator AND newer.generation>g.generation) '
                 "ORDER BY (g.availability='available') DESC,g.complete_bytes DESC",
                 (locator_value,)).fetchall()
+            sources.extend(db.execute(
+                'SELECT g.locator,1 AS store FROM copilot_store_session m '
+                'JOIN source_generation g ON g.id=m.source_id WHERE m.session_id=? '
+                "AND g.availability='available' "
+                'AND NOT EXISTS (SELECT 1 FROM source_generation newer '
+                'WHERE newer.locator=g.locator AND newer.generation>g.generation) ORDER BY g.locator',
+                (session_id,)).fetchall())
             if not sources:
                 registered = db.execute(
                     'SELECT 1 FROM source_generation g WHERE ' + locator_predicate + ' LIMIT 1',
@@ -114,11 +123,21 @@ def read_transcript_page(storage: Storage, roots: tuple[str, ...], session_id: s
         row = sessions[identity]
         return TranscriptLink(identity, row['native_title'] or row['title_excerpt'] or 'Session ' + row['native_id'][:8])
 
+    family = families.get(session_id)
+    parent = link(str(family.id)) if family and family.id != session_id else None
+    children = tuple(link(sid) for sid, member in families.items()
+                     if family and member.id == session_id and sid != session_id)
     error = TranscriptUnavailable('No original source is registered for this session.', 'missing')
     for source in sources:
         try:
+            if session['harness'] == 'copilot-cli' and source['store']:
+                transcript = read_store_transcript(Path(source['locator']), roots, session['native_id'], branch)
+                title = session['native_title'] or session['title_excerpt'] or transcript.title
+                return TranscriptPage(replace(transcript, title=title), parent, children)
             payload = source_snapshot(source['locator'], roots)
         except TranscriptUnavailable as unavailable:
+            if unavailable.kind == 'invalid_branch':
+                raise
             error = unavailable
             continue
         if session['harness'] == 'pi':
@@ -139,9 +158,15 @@ def read_transcript_page(storage: Storage, roots: tuple[str, ...], session_id: s
         elif session['harness'] == 'copilot-cli':
             native = session['native_id']
             raw_id, separator, agent_id = native.partition(':agent:')
-            transcript = parse_copilot_cli_transcript(
-                payload, raw_id, session_id,
-                agent_id=agent_id if separator else None, branch=branch)
+            try:
+                transcript = parse_copilot_cli_transcript(
+                    payload, raw_id, session_id,
+                    agent_id=agent_id if separator else None, branch=branch)
+            except TranscriptUnavailable as unavailable:
+                if unavailable.kind != 'unsupported':
+                    raise
+                error = unavailable
+                continue
         else:
             error = TranscriptUnavailable('This transcript source is not supported.', 'unsupported')
             continue
@@ -150,9 +175,9 @@ def read_transcript_page(storage: Storage, roots: tuple[str, ...], session_id: s
             continue
         title = session['native_title'] or session['title_excerpt'] or transcript.title
         transcript = replace(transcript, title=title)
-        family = families.get(session_id)
-        parent = link(str(family.id)) if family and family.id != session_id else None
-        children = tuple(link(sid) for sid, member in families.items()
-                         if family and member.id == session_id and sid != session_id)
+        if transcript.harness == 'pi':
+            from .transcript_costs import pi_transcript_costs
+            costs = pi_transcript_costs(storage, transcript, source['locator'], payload, catalog or load_bundled_catalog())
+            return TranscriptPage(transcript, parent, children, costs)
         return TranscriptPage(transcript, parent, children)
     raise error

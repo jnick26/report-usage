@@ -28,7 +28,7 @@ def test_v3_upgrade_backs_up_and_preserves_pi_identity_and_revision(tmp_path: Pa
     assert storage.snapshot().revision == 7
     assert storage.snapshot().sessions[0].id == 'pi:retained'
     with storage.connect() as db:
-        assert db.execute('SELECT schema_version FROM ledger_meta').fetchone()[0] == 6
+        assert db.execute('SELECT schema_version FROM ledger_meta').fetchone()[0] == 7
         db.execute("INSERT INTO session(id,harness,native_id) VALUES('codex:retained','codex','retained')")
         db.execute("INSERT INTO session_attribution VALUES('codex:retained',NULL,NULL,'not_resolved')")
     backups = [path]

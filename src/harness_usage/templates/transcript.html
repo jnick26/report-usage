@@ -18,6 +18,14 @@
     {% else %}{{ content(segment) }}{% endif %}
   {% endfor %}
 {%- endmacro %}
+{% macro request_cost(item) -%}
+{% if item.cost %}<details class="request-cost"><summary title="Exact estimate: {{ '≥' if item.cost.incomplete and item.cost.amount is not none else '' }}{{ item.cost.amount | exact_usd if item.cost.amount is not none else 'Unavailable' }}">Response {{ item.request_number }} · {{ item.cost | cost_label }}</summary><div class="cost-details">
+  <p>API-equivalent estimate for this model request. Tool execution is not separately priced.</p>
+  <p>Exact estimate: {% if item.cost.amount is not none %}{{ '≥' if item.cost.incomplete else '' }}{{ item.cost.amount | exact_usd }}{% else %}Unavailable{% endif %} · Exact total so far: {{ view.cost_points[item.request_number - 1].total_exact }}</p>
+  {% for line in item.cost.calculations %}<div class="cost-calculation"><span>{{ line.category | replace('_', ' ') | title }}</span><span>{{ line.tokens if line.tokens is not none else 'Unknown' }} tokens</span><span>{% if line.rate is not none %}{{ line.rate | exact_usd }} / Mtok{% else %}Rate unavailable{% endif %}</span><span>{% if line.subtotal is not none %}{{ line.subtotal | exact_usd }}{% else %}Unavailable{% endif %}</span>{% if line.reason %}<span class="muted">{{ line.reason | replace('_', ' ') }}</span>{% endif %}</div>{% endfor %}
+  {% if not item.cost.calculations and item.cost.amount is none %}<p>Pricing evidence is unavailable for this request.</p>{% endif %}
+</div></details>{% endif %}
+{%- endmacro %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -56,22 +64,37 @@
     {% endif %}
     <button type="button" id="expand-tools">Expand tools</button><a href="#end">Latest ↓</a>
   </div>
-</div></div>
+</div>
+{% if view.cost_points %}<section id="cost-timeline" class="cost-timeline" aria-label="Cumulative request cost" data-cost-points="{{ view.cost_points | tojson | forceescape }}" data-cost-buckets="{{ view.cost_buckets | tojson | forceescape }}">
+  <div class="cost-heading"><span>Branch total (estimated)</span><strong title="Exact branch estimate: {{ view.cost_points[-1].total_exact }}">{{ view.cost_points[-1].total_label }}</strong></div>
+  <p class="cost-coverage">Running estimated cost · Click the line to jump to a response<br>{{ view.priced_requests }} of {{ view.cost_points | length }} requests have a priced amount · Dashed: lower bound · Gaps: unavailable</p>
+  <div class="cost-chart"><span class="cost-axis-top">{% if view.priced_requests %}{{ view.page.costs[-1].cumulative | axis_usd }}{% else %}Unknown{% endif %}</span><span class="cost-axis-bottom">$0</span>
+    <svg id="cost-plot" viewBox="0 -5 1000 110" preserveAspectRatio="none" role="img" aria-label="Cumulative USD by model request. Use the cost bars to select a response.">
+      <path class="cost-grid" d="M0,100H1000"/><path id="cost-known" class="cost-curve"/><path id="cost-partial" class="cost-curve partial"/><path id="cost-gaps" class="cost-gaps"/><circle id="cost-cursor" class="cost-cursor" r="4" cx="0" cy="100"/>
+    </svg>
+    <div id="cost-preview" class="cost-preview" role="tooltip" hidden></div>
+  </div>
+  <div class="cost-bar-heading"><span id="cost-bar-label">Bar height: cost per response group</span><a id="cost-jump" href="#{{ view.cost_points[0].anchor }}">Jump to response ↓</a></div>
+  <svg id="cost-histogram" class="cost-histogram" viewBox="0 0 1000 40" preserveAspectRatio="none" role="slider" tabindex="0" aria-labelledby="cost-bar-label" aria-describedby="cost-selection cost-bar-help" aria-orientation="horizontal" aria-valuemin="1" aria-valuemax="{{ view.cost_points | length }}" aria-valuenow="1">
+    {% for bucket in view.cost_buckets %}<rect class="cost-bar{% if bucket.unknown %} unknown{% elif bucket.incomplete %} partial{% endif %}" x="{{ bucket.start / (view.cost_points | length) * 1000 }}" y="{{ 16 if bucket.unknown else 39 - bucket.ratio * 38 }}" width="{{ [(bucket.end - bucket.start) / (view.cost_points | length) * 1000 - 1, 0.5] | max }}" height="{{ 8 if bucket.unknown else [bucket.ratio * 38, 1] | max }}"><title>Responses {{ bucket.start + 1 }}–{{ bucket.end }} · {{ bucket.label }}</title></rect>{% endfor %}
+  </svg>
+  <span id="cost-bar-help" class="sr-only">Response groups, not time intervals. Arrow keys select adjacent responses; Home and End select the first or last. Dashed bars show partial costs; hollow marks mean unavailable.</span>
+  <div id="cost-selection" class="cost-selection" aria-live="polite">Response 1 of {{ view.cost_points | length }} · This response {{ view.cost_points[0].amount_label }} · Total so far {{ view.cost_points[0].total_label }}</div>
+</section>{% endif %}
+</div>
 <main class="layout">
-  <aside class="outline" aria-label="Conversation navigation"><nav class="history-rail" aria-label="Conversation history">
-    {% for item in view.rail %}<a href="#{{ item.anchor }}" class="history-tick{% if item.tool %} tool-tick{% endif %}" aria-label="{{ item.label }}: {{ item.excerpt }}"><span class="tick-line"></span><span class="history-preview" role="tooltip"><strong>{{ item.label }}</strong><span>{{ item.excerpt }}</span></span></a>{% endfor %}
-  </nav></aside>
   <section class="thread" id="thread" aria-label="Transcript">
     {% for item in view.entries %}
-      {% if isinstance(item, NoticeView) %}<details class="context-note" id="{{ item.anchor }}"><summary>{{ item.entry.label }}</summary><div class="text-block">{{ item.entry.text }}</div></details>
+      {% if isinstance(item, MetadataGroup) %}<details class="context-note metadata-group"><summary>Session metadata · {{ item.notices | length }} records</summary>{% for notice in item.notices %}<div class="text-block" id="{{ notice.anchor }}">{{ notice.entry.text }}</div>{% endfor %}</details>
+      {% elif isinstance(item, NoticeView) %}<details class="context-note" id="{{ item.anchor }}"><summary>{{ item.entry.label }}</summary><div class="text-block">{{ item.entry.text }}</div></details>
       {% elif isinstance(item, ActivityBatch) %}<details class="activity-batch"><summary><span>{{ item.summary }}</span></summary><div class="activity-entries">
-        {% for message in item.messages %}<article class="activity-entry" id="{{ message.anchor }}" aria-label="Assistant activity">{% if message.model %}<span class="model">{{ message.model }}</span>{% endif %}{{ segments(message) }}</article>{% endfor %}
+        {% for message in item.messages %}<article class="activity-entry" id="{{ message.anchor }}" aria-label="Assistant activity">{% if message.model %}<span class="model">{{ message.model }}</span>{% endif %}{{ request_cost(message) }}{{ segments(message) }}</article>{% endfor %}
       </div></details>
       {% elif isinstance(item, ContextGroup) %}<details class="context-note context-group"><summary>Session context</summary><div class="context-body">
         {% for message in item.messages %}<article class="context-message" id="{{ message.anchor }}" aria-label="{{ message.label }}"><div class="context-role"><span>{{ message.label }}</span>{% if message.model %}<span class="model">{{ message.model }}</span>{% endif %}</div>{{ segments(message) }}</article>{% endfor %}
       </div></details>
       {% else %}<article class="message {{ item.entry.role }}" id="{{ item.anchor }}" aria-label="{{ item.label }} message">
-        <div class="role"><span class="sr-only">{{ item.label }}</span>{% if item.model %}<span class="model">{{ item.model }}</span>{% endif %}</div>{{ segments(item) }}
+        <div class="role"><span class="sr-only">{{ item.label }}</span>{% if item.model %}<span class="model">{{ item.model }}</span>{% endif %}</div>{{ request_cost(item) }}{{ segments(item) }}
       </article>{% endif %}
     {% endfor %}
     <div class="end" id="end"><span>End of recorded conversation</span><a href="#top">Back to top ↑</a></div>

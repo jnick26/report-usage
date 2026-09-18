@@ -791,7 +791,7 @@ def test_storage_scope_separates_installations_and_reimport_restart_is_idempoten
     reopened = Storage(path)
     with reopened.connect() as db:
         assert tuple(db.execute("SELECT id FROM observation ORDER BY id")) == before
-        assert db.execute('SELECT schema_version FROM ledger_meta').one()[0] == 6
+        assert db.execute('SELECT schema_version FROM ledger_meta').one()[0] == 7
     reopened.close()
 
 

@@ -1,12 +1,12 @@
--- Application DuckDB ledger schema v6.
+-- Application DuckDB ledger schema v7.
 CREATE SEQUENCE ledger_order START 1;
 
 CREATE TABLE ledger_meta (
  singleton BIGINT PRIMARY KEY CHECK(singleton=1),
- schema_version BIGINT NOT NULL CHECK(schema_version=6),
+ schema_version BIGINT NOT NULL CHECK(schema_version=7),
  revision BIGINT NOT NULL CHECK(revision>=0)
 );
-INSERT INTO ledger_meta VALUES(1,6,0);
+INSERT INTO ledger_meta VALUES(1,7,0);
 CREATE TABLE import_run (
  id TEXT PRIMARY KEY NOT NULL,
  state TEXT NOT NULL CHECK(state IN ('running','succeeded','failed','interrupted')),
@@ -216,3 +216,19 @@ CREATE TABLE copilot_cli_evidence (
 );
 CREATE INDEX copilot_cli_event ON copilot_cli_evidence(event_id);
 CREATE INDEX copilot_cli_epoch ON copilot_cli_evidence(counter_epoch);
+
+-- Copilot session-store provenance.
+CREATE TABLE copilot_store_session (
+ source_id TEXT NOT NULL REFERENCES source_generation(id),
+ session_id TEXT NOT NULL REFERENCES session(id),
+ created_us BIGINT, updated_us BIGINT, host_type TEXT,
+ PRIMARY KEY(source_id,session_id)
+);
+CREATE TABLE copilot_store_evidence (
+ source_id TEXT NOT NULL REFERENCES source_generation(id),
+ row_id BIGINT, observation_id TEXT NOT NULL REFERENCES observation(id),
+ turn_index BIGINT, agent_id TEXT, parent_tool_call_id TEXT,
+ counters_json TEXT NOT NULL CHECK(json_valid(counters_json)),
+ compatibility TEXT NOT NULL,
+ PRIMARY KEY(source_id,observation_id)
+);

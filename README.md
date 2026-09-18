@@ -7,13 +7,22 @@ sources into one DuckDB database. Missing usage is unavailable, not zero.
 ## Install with uv
 
 Requires [uv](https://docs.astral.sh/uv/getting-started/installation/), Git, and
-GitHub SSH access to this repository. The supported desktop platform is macOS;
+access to this repository over HTTPS or SSH. The supported desktop platform is macOS;
 Python 3.13 is required. Windows is not supported by the current runtime.
 
 ```sh
-uv tool install --python 3.13 'git+ssh://git@github.com/jnick26/report-usage.git@v0.1.1'
+uv tool install --python 3.13 'git+https://github.com/jnick26/report-usage.git@v0.1.1'
 harness-usage
 ```
+
+SSH works too, if you prefer SSH-key authentication:
+
+```sh
+uv tool install --python 3.13 'git+ssh://git@github.com/jnick26/report-usage.git@v0.1.1'
+```
+
+For a private repository, authenticate Git for the chosen transport first.
+HTTPS does not require an SSH key; do not put access tokens in the install URL.
 
 The command opens `http://127.0.0.1:8765`. If the command is not on your PATH,
 run `uv tool update-shell` and restart your shell. The native macOS app bundle
@@ -33,7 +42,7 @@ On first launch, existing standard history directories are detected automaticall
 | Claude Code | `~/.claude/projects` |
 | Copilot in VS Code | `~/Library/Application Support/Code/User/workspaceStorage` |
 | Copilot in VS Code Insiders | `~/Library/Application Support/Code - Insiders/User/workspaceStorage` |
-| Copilot CLI | `~/.copilot/session-state` |
+| Copilot CLI | `~/.copilot` (includes `session-state` and optional `session-store.db`) |
 
 Missing directories are skipped. Saved source settings (including an empty list)
 are preserved; explicit `--root` arguments replace them. You can inspect or edit
@@ -46,6 +55,10 @@ and other nonstandard paths can be added in **Sources** or with `--root`.
 Pi's `PI_CODING_AGENT_SESSION_DIR`, when set, takes precedence over its agent home.
 Imports run on launch and when you choose **Refresh**. Original history files
 are read, not modified.
+
+Existing Copilot configurations pointing only at `session-state` stay unchanged.
+To include the sibling `session-store.db`, add its parent Copilot home directory
+in **Sources**. The importer never expands a saved root to read outside it.
 
 ```sh
 harness-usage --port 8766 --timezone Europe/Kyiv
@@ -72,15 +85,22 @@ normal usage and bundled pricing work offline.
   precedence; equal overlaps count once and conflicting valid pairs are unresolved.
 - Copilot CLI supports the qualified durable event format. Workspace-only older
   history has unavailable usage, not zero usage.
-  The separate `session-store.db` is not imported yet: its per-call records overlap
-  event-file summaries and cannot safely be added to those totals.
+  The optional schema-8 `session-store.db` is read as a consistent, read-only
+  snapshot, including committed WAL records. Retained database calls are lower
+  bounds and are reconciled with overlapping event summaries, never added blindly.
+  Conflicting or unproven overlaps remain unresolved. Cache-inclusive input does
+  not establish fresh input when cache usage is present.
 - AI credits, nano-AIU, premium requests, request counts, recorded USD estimates,
   and API-equivalent cost estimates stay separate. None establishes your bill or
   subscription allocation. Selected model names alone are not priced.
 - Copilot VS Code and CLI have no general exact cross-source request join; their
   combined usage is not a deduplicated billing total.
 - Transcripts require supported retained source files. Deleted history cannot be
-  reconstructed. Future per-call capture is not implemented or enabled.
+  reconstructed. Copilot CLI prefers native event transcripts; database-only
+  sessions can show retained turn summaries, explicitly labeled lossy. These
+  summaries do not reconstruct tool calls, reasoning, or branches, and are read
+  only on demand, never stored in the usage ledger. Missing turns remain
+  unavailable. Future per-call capture is not implemented or enabled.
 
 Pricing uses a bundled [models.dev](https://models.dev) snapshot; its license is
 included in the package. Unknown models or insufficient usage remain unpriced.

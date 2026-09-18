@@ -80,13 +80,13 @@ values use None alone. Use integers <2**63 and existing bounded Decimal semantic
 **Interfaces:** produce the exact dataclasses and callable above; expose the
 read-only snapshot context helper for the later on-demand transcript reader.
 
-- [ ] Add synthetic SQLite fixtures with version table, sessions and usage tables.
-- [ ] Demonstrate RED before implementation: a committed row present only in WAL
+- [x] Add synthetic SQLite fixtures with version table, sessions and usage tables.
+- [x] Demonstrate RED before implementation: a committed row present only in WAL
   must appear in `read_session_store(path).calls`; source main/WAL hashes unchanged.
-- [ ] Implement sqlite3 backup, feature checks and bounded native field decoding.
-- [ ] Assert known/zero/invalid/null counters, missing turn joins, schema rejection,
+- [x] Implement sqlite3 backup, feature checks and bounded native field decoding.
+- [x] Assert known/zero/invalid/null counters, missing turn joins, schema rejection,
   malformed identities, repeated fingerprint equality, changed/deleted call handling.
-- [ ] Run focused pytest and mypy. Report RED/GREEN evidence for review.
+- [x] Run focused pytest and mypy. Report RED/GREEN evidence for review.
 
 ### Task 2: Ledger generations, reconciliation and report bounds
 
@@ -98,46 +98,47 @@ read-only snapshot context helper for the later on-demand transcript reader.
 accepts `SourcePayload | CopilotStoreSnapshot` and existing tuple inputs. Expose
 `Storage.import_session_store(snapshot) -> int` as a one-snapshot wrapper.
 
-- [ ] Test schema-6 populated ledger upgrade and restart before changing storage.
-- [ ] Add schema-7 provenance tables and preserve SQLite/v5 conversion paths.
-- [ ] Add atomic snapshot import using existing `_insert_observation`, generation
+- [x] Test schema-6 populated ledger upgrade and restart before changing storage.
+- [x] Add schema-7 provenance tables and preserve SQLite/v5 conversion paths.
+- [x] Add atomic snapshot import using existing `_insert_observation`, generation
   hashing, affected-session closure and batched writes. Register empty sessions
   with unavailable evidence rather than zero. Namespace local call IDs by generation.
-- [ ] Add RED/GREEN overlap cases with independent literal totals:
+- [x] Add RED/GREEN overlap cases with independent literal totals:
   JSON output10 + equal DB calls4/6 =>10; JSON10 + partial DB4 =>10;
   conflicting DB12 => unresolved, not22; DB-only4 =>lower-bound4.
-- [ ] Cover copied DBs, multiplicity, rebuilt row IDs, removed rows/sessions,
+- [x] Cover copied DBs, multiplicity, rebuilt row IDs, removed rows/sessions,
   import-order independence, missing/reappearing source and model-presence controls.
-- [ ] Keep raw/itemized accounting distinct; no sum of subagent and top-level totals.
-- [ ] Plumb per-measure lower bounds through ordinary and SQL reports; assert parity
+- [x] Keep raw/itemized accounting distinct; no sum of subagent and top-level totals.
+- [x] Plumb per-measure lower bounds through ordinary and SQL reports; assert parity
   for all-time, date filters, sessions/models and zero/unknown values.
-- [ ] Run focused pytest and mypy; provide migration and reconciliation evidence.
+- [x] Run focused pytest and mypy; provide migration and reconciliation evidence.
 
 ### Task 3: Discovery, progress and applicable transcript views
 
 **Files:** modify `application.py`, `__main__.py`, `transcript_access.py`,
 `README.md`; create `copilot_store_transcript.py` and focused application/transcript
-tests. Task 1 implementer owns this after its reader contract is stable.
+tests. A separate implementation agent owns these files, using Task 1's shared
+`session_store_connection(path)` snapshot context manager.
 
 **Interfaces:** `_scan` yields the typed snapshot for real session-store.db paths;
 existing import_sources dispatch consumes it. Use Task 2 store_session membership
 to find DB-only sessions. Accounting never reads turns.
 
-- [ ] Test authorized Copilot-home discovery plus missing optional database.
-- [ ] Include the DB in existing import progress/error accounting; preserve explicit
+- [x] Test authorized Copilot-home discovery plus missing optional database.
+- [x] Include the DB in existing import progress/error accounting; preserve explicit
   saved roots and document the parent-root requirement for legacy configurations.
-- [ ] Prefer native JSONL for transcripts. Test DB-only on-demand turn strings with
+- [x] Prefer native JSONL for transcripts. Test DB-only on-demand turn strings with
   a lossy-summary notice, HTML escaping, branch rejection, absent turns and bounds.
-- [ ] Test symlink/out-of-root denial without reading adjacent unauthorized sources.
-- [ ] Update capability documentation and run focused source/web tests.
+- [x] Test symlink/out-of-root denial without reading adjacent unauthorized sources.
+- [x] Update capability documentation and run focused source/web tests.
 
 ### Task 4: Integration verification and review
 
 **Files:** synthetic regression tests as needed, existing docs above.
 
-- [ ] Run full tests and strict mypy from an isolated exported tree.
-- [ ] Run the supplied WAL-aware DB through reader/import/reimport/report in a
+- [x] Run full tests and strict mypy from an isolated exported tree.
+- [x] Run the supplied WAL-aware DB through reader/import/reimport/report in a
   temporary DuckDB; report safe aggregate counts only.
-- [ ] Verify representative overlap using source JSONL; no arithmetic sum fallback.
-- [ ] Review the final diff, address concrete findings, scan for secrets.
-- [ ] Leave local changes ready for publication; do not push.
+- [x] Verify representative overlap using source JSONL; no arithmetic sum fallback.
+- [x] Review the final diff, address concrete findings, scan for secrets.
+- [x] Leave local changes ready for publication; do not push.

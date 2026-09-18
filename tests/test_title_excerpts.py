@@ -122,6 +122,6 @@ def test_v2_title_backfill_once_without_accounting_replay(tmp_path, monkeypatch)
     with migrated.connect() as db:
         assert list(map(tuple, db.execute('SELECT * FROM source_generation'))) == hashes
         assert list(map(tuple, db.execute('SELECT * FROM decision'))) == decisions
-        assert db.execute('SELECT schema_version FROM ledger_meta').fetchone()[0] == 6
+        assert db.execute('SELECT schema_version FROM ledger_meta').fetchone()[0] == 7
     monkeypatch.setattr(module, 'read_metadata', forbidden)
     assert migrated.import_source('/main', data) == revision

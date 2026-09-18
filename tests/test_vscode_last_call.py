@@ -213,7 +213,7 @@ def test_last_call_reprojects_real_retained_shape1_and_preserves_native_identity
     with app.storage.connect() as db:
         assert tuple(db.execute('SELECT generation,profile FROM source_generation ORDER BY generation')) == (
             (0, 'vscode-chat-v3/copilot-shape-1'), (1, PROFILE))
-        assert db.execute('SELECT schema_version FROM ledger_meta').one()[0] == 6
+        assert db.execute('SELECT schema_version FROM ledger_meta').one()[0] == 7
     revision = app.storage.import_source(str(locator), data)
     assert revision == current.revision
     assert read_transcript_page(app.storage, (str(tmp_path),), current.sessions[0].id)

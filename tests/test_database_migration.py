@@ -87,7 +87,7 @@ def test_native_v5_migrates_without_changing_revision_or_evidence(tmp_path):
     native_v5(path)
     store = Storage(path)
     with store.connect() as db:
-        assert db.execute('SELECT schema_version FROM ledger_meta').one()[0] == 6
+        assert db.execute('SELECT schema_version FROM ledger_meta').one()[0] == 7
         assert db.execute('SELECT count(*) FROM quantity_value').one()[0] == 0
         assert db.execute('SELECT ordinal FROM appearance').one()[0] == 41
     assert store.snapshot().revision == 7

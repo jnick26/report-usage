@@ -24,7 +24,7 @@ def isolated_home(tmp_path, monkeypatch):
 def standard_roots(home):
     return tuple(home / name for name in (
         '.pi/agent/sessions', '.codex/sessions', '.codex/archived_sessions',
-        '.claude/projects', '.copilot/session-state',
+        '.claude/projects', '.copilot',
         'Library/Application Support/Code/User/workspaceStorage',
         'Library/Application Support/Code - Insiders/User/workspaceStorage',
     ))
@@ -108,7 +108,7 @@ def test_overrides_replace_defaults_and_normalized_paths_deduplicate(isolated_ho
         monkeypatch.setenv(name, '~/override/../override')
     assert cli.default_source_roots() == tuple(str(path.resolve()) for path in (
         override / 'sessions', override / 'archived_sessions', override / 'projects',
-        override / 'session-state', *standard_roots(isolated_home)[-2:]))
+        override, *standard_roots(isolated_home)[-2:]))
     monkeypatch.setenv('CODEX_HOME', str(isolated_home / 'absent'))
     assert str(standard_roots(isolated_home)[1]) not in cli.default_source_roots()
 

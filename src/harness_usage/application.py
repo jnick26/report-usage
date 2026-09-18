@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 from threading import Lock, Thread, current_thread
-from typing import Iterator, Literal
+from typing import TYPE_CHECKING, Iterator, Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -20,6 +20,9 @@ from .reporting import Report, ReportQuery, SessionSort
 from .storage import Storage, ImportPhase, ImportStatus as ImportStatus
 from .aggregate_reporting import build_aggregate_report
 from .source_input import MAX_PROBE_BYTES, SourcePayload, detect_source
+
+if TYPE_CHECKING:
+    from .copilot_store_reader import CopilotStoreSnapshot
 
 def local_timezone() -> str:
     configured = os.environ.get('TZ')
@@ -105,7 +108,7 @@ class Application:
             pending.replace(self._config)
 
     def transcript(self, session_id: str, branch: str | None = None) -> TranscriptPage:
-        return read_transcript_page(self.storage, self.get_roots(), session_id, branch)
+        return read_transcript_page(self.storage, self.get_roots(), session_id, branch, catalog=self.catalog)
 
     def status(self) -> ImportStatus:
         status = self.storage.import_status()
@@ -139,7 +142,7 @@ class Application:
             self._worker.start()
             return replace(status, phase='discovering')
 
-    def _scan(self, roots: tuple[str, ...]) -> Iterator[SourcePayload]:
+    def _scan(self, roots: tuple[str, ...]) -> 'Iterator[SourcePayload | CopilotStoreSnapshot]':
         with self._progress_lock:
             run_id = self._progress[0] if self._progress is not None and current_thread() is self._worker else None
         files: dict[Path, int] = {}
@@ -158,12 +161,21 @@ class Application:
                         metadata_only = (name == 'workspace.yaml' and path.parent.parent.name == 'session-state'
                                          and not (path.parent / 'events.jsonl').is_file())
                         if (path.suffix == '.jsonl' or path.parent.name == 'chatSessions' and path.suffix == '.json'
-                                or metadata_only) and not path.is_symlink():
+                                or metadata_only or name == 'session-store.db') and not path.is_symlink():
                             files.setdefault(path, index)
             except OSError as error:
                 raise SourceFailure(index, 'unavailable') from error
         self._update_progress(run_id, 'checking' if files else 'finalizing', 0, len(files))
         for checked, (path, index) in enumerate(sorted(files.items()), 1):
+            if path.name == 'session-store.db':
+                from .copilot_store_reader import read_session_store
+                try:
+                    snapshot = read_session_store(path)
+                except (OSError, ValueError) as failure:
+                    raise SourceFailure(index, 'read_failed') from failure
+                self._update_progress(run_id, 'finalizing' if checked == len(files) else 'checking', checked, len(files))
+                yield snapshot
+                continue
             try:
                 data = path.read_bytes()
                 context: tuple[tuple[str, bytes], ...] = ()

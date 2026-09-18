@@ -27,7 +27,7 @@ def default_source_roots() -> tuple[str, ...]:
     candidates = (
         Path(os.environ.get('PI_CODING_AGENT_SESSION_DIR') or pi / 'sessions'),
         codex / 'sessions', codex / 'archived_sessions', claude / 'projects',
-        copilot / 'session-state',
+        copilot,
         home / 'Library/Application Support/Code/User/workspaceStorage',
         home / 'Library/Application Support/Code - Insiders/User/workspaceStorage',
     )

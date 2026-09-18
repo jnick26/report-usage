@@ -69,7 +69,7 @@ def _copy(source: sqlite3.Connection, target: Path) -> None:
             if table not in source_tables and table != 'session_attribution':
                 continue
             names = [row[0] for row in raw.execute(f'DESCRIBE {table}').fetchall()]
-            expressions = [('6 AS schema_version' if table == 'ledger_meta' and name == 'schema_version' else
+            expressions = [('7 AS schema_version' if table == 'ledger_meta' and name == 'schema_version' else
                             'rowid AS ordinal' if name == 'ordinal' else
                             'id AS session_id' if table == 'session_attribution' and name == 'session_id' else name)
                            for name in names]

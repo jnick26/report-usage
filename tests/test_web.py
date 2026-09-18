@@ -62,8 +62,10 @@ def test_source_quantity_table_has_visible_exact_states_and_accessible_units(kno
         response = client.get('/', headers=headers)
         assert response.status_code == 200
         page = response.text
-        section = re.search(r'<section[^>]*aria-label="Source quantities".*?</section>', page, re.S)
+        section = re.search(r'<details\b([^>]*)aria-label="Source quantities"([^>]*)>.*?</details>', page, re.S)
         assert section is not None
+        assert not re.search(r'\bopen\b', section[1] + section[2])
+        assert '<summary>Source quantities</summary>' in section[0]
         visible = re.sub(r'<[^>]+>', '', section[0])
         assert 'Copilot in VS Code' in visible and 'AI credits' in visible and 'Not billed spend' in visible
         assert all(status in visible for status in statuses)

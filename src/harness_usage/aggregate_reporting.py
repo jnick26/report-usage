@@ -109,6 +109,7 @@ def build_aggregate_report(storage: Storage, query: ReportQuery, catalog: Catalo
             alias = f'd{index}'
             joins.append(f"LEFT JOIN decision {alias} ON {alias}.observation_id=b.id AND {alias}.measure='{measure}'")
             columns.append(f"COALESCE({alias}.state,'excluded') AS {measure}_decision")
+            columns.append(f"COALESCE({alias}.reason='copilot_store_partial_index',false) AS {measure}_index_lower_bound")
         values_sql = ('SELECT b.*,' + ','.join(columns)
                       + ' FROM base b ' + ' '.join(joins) + ' WHERE b.included')
         subtotal = '+'.join(f'COALESCE(CAST({m}_amount AS HUGEINT),0)' for m in MEASURES[:4])
@@ -131,7 +132,7 @@ def build_aggregate_report(storage: Storage, query: ReportQuery, catalog: Catalo
             aggregates.extend((f"SUM(CAST(CASE WHEN {m}_decision='selected' AND ({state})='known' THEN {m}_amount ELSE 0 END AS BIGNUM)) AS {m}_known",
                                f"SUM({m}_decision='unresolved' OR ({m}_decision='selected' AND ({state})='unknown')) AS {m}_unknown",
                                f"SUM({m}_decision='selected' AND ({state})='not_applicable') AS {m}_na",
-                               f"SUM({m}_decision='selected' AND ({state})='known' AND output_lower_bound) AS {m}_lower" if m == 'output' else f'0 AS {m}_lower'))
+                               f"SUM({m}_decision='selected' AND ({state})='known' AND ({m}_index_lower_bound" + (" OR output_lower_bound" if m == 'output' else '') + f")) AS {m}_lower"))
             if m != 'total':
                 dimensions.extend((f'{m}_state', f'{m}_decision', f'COALESCE({m}_amount=0,0) AS {m}_zero'))
                 group_by.extend((f'{m}_state', f'{m}_decision', f'{m}_zero'))
@@ -150,8 +151,8 @@ def build_aggregate_report(storage: Storage, query: ReportQuery, catalog: Catalo
             groups.append(_Group(row['owner_id'], ProjectId(row['project_id']) if row['project_id'] is not None else None, row['harness'], model, row['bucket'], tokens, price, row['observations'] if price.unpriced else 0, bool(row['selected'])))
         quantities = quantity_rows((row['harness'],
             MeasuredQuantity(row['measure'], row['state'], Decimal(row['amount_decimal']) if row['amount_decimal'] is not None else None,
-                             row['reason'], bool(row['lower_bound']), row['source_ref']), row['decision'])
-            for row in db.execute('SELECT b.harness,q.*,d.state AS decision FROM base b JOIN quantity_value q ON q.observation_id=b.id JOIN quantity_decision d ON d.observation_id=b.id AND d.measure=q.measure WHERE b.included'))
+                             row['reason'], bool(row['lower_bound']) or row['state'] == 'known' and row['decision_reason'] == 'copilot_store_partial_index', row['source_ref']), row['decision'])
+            for row in db.execute('SELECT b.harness,q.*,d.state AS decision,d.reason AS decision_reason FROM base b JOIN quantity_value q ON q.observation_id=b.id JOIN quantity_decision d ON d.observation_id=b.id AND d.measure=q.measure WHERE b.included'))
         subagents: dict[str, int] = dict(db.execute('SELECT owner_id,COUNT(DISTINCT CASE WHEN session_id<>owner_id THEN session_id END) FROM base WHERE included GROUP BY owner_id'))
         # Transfer only scoped category/identity facts, never raw diagnostics or payloads.
         facts: dict[str, list[tuple[str, ObservationId]]] = defaultdict(list)
@@ -162,7 +163,7 @@ def build_aggregate_report(storage: Storage, query: ReportQuery, catalog: Catalo
             'timing_unavailable': "b.time_kind='undated' OR NOT b.included",
             'unknown_model_identity': 'b.provider IS NULL OR b.model IS NULL',
             'unassigned': 'b.project_id IS NULL',
-            'lower_bound': "EXISTS(SELECT 1 FROM quantity_value q JOIN quantity_decision d ON d.observation_id=q.observation_id AND d.measure=q.measure WHERE q.observation_id=b.id AND d.state='selected' AND q.state='known' AND q.lower_bound) OR (b.output_lower_bound AND EXISTS(SELECT 1 FROM token_value v JOIN decision d ON d.observation_id=v.observation_id AND d.measure=v.measure WHERE v.observation_id=b.id AND v.measure='output' AND v.state='known' AND d.state='selected'))",
+            'lower_bound': "EXISTS(SELECT 1 FROM quantity_value q JOIN quantity_decision d ON d.observation_id=q.observation_id AND d.measure=q.measure WHERE q.observation_id=b.id AND d.state='selected' AND q.state='known' AND (q.lower_bound OR d.reason='copilot_store_partial_index')) OR EXISTS(SELECT 1 FROM token_value v JOIN decision d ON d.observation_id=v.observation_id AND d.measure=v.measure WHERE v.observation_id=b.id AND v.state='known' AND d.state='selected' AND (d.reason='copilot_store_partial_index' OR (b.output_lower_bound AND v.measure='output')))",
         }
         for state, code in (('known', '_known_usage'), ('unknown', 'usage_partial'), ('not_applicable', 'not_applicable')):
             conditions[code] = ("EXISTS(SELECT 1 FROM token_value v JOIN decision d ON d.observation_id=v.observation_id AND d.measure=v.measure "

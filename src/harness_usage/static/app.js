@@ -8,12 +8,11 @@ if (window.up && window.EventSource) {
   let stream;
   let retryTimer;
   let refreshing = false;
-  let importing = false;
   let latestRevision = 0;
   let latestStatus;
   function refreshReport() {
     const report = document.querySelector('#report');
-    if (!report || refreshing || importing || latestRevision <= Number(report.dataset.revision)) return;
+    if (!report || refreshing || latestRevision <= Number(report.dataset.revision)) return;
     refreshing = true;
     up.reload('#report', {
       url: report.dataset.canonical, history: false, cache: false,
@@ -21,10 +20,11 @@ if (window.up && window.EventSource) {
       onLoaded(event) {
         if (document.querySelector('#report') !== report) event.skip();
       }
-    }).catch(() => {
+    }).catch(() => {}).finally(() => {
+      refreshing = false;
       clearTimeout(retryTimer);
       retryTimer = setTimeout(refreshReport, 3000);
-    }).finally(() => { refreshing = false; });
+    });
   }
   function renderStatus(state) {
     if (!state) return;
@@ -39,7 +39,7 @@ if (window.up && window.EventSource) {
         : checking ? `${state.files_checked} / ${state.files_total} files checked · ${Math.floor(100 * state.files_checked / state.files_total)}%`
         : 'Discovering files';
       const text = state.state === 'running'
-        ? `${progressText}. Showing saved data.`
+        ? `${progressText}. Showing partial results; updating automatically.`
         : state.state === 'failed'
           ? failure
           : state.state === 'interrupted'
@@ -61,7 +61,6 @@ if (window.up && window.EventSource) {
     stream = new EventSource('/events');
     stream.addEventListener('status', event => {
       latestStatus = JSON.parse(event.data);
-      importing = latestStatus.state === 'running';
       latestRevision = latestStatus.revision;
       renderStatus(latestStatus);
       refreshReport();

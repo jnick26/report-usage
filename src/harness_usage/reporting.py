@@ -40,6 +40,7 @@ COVERAGE_TEXT = {
     'events_unavailable': 'Older Copilot CLI history has no recoverable usage events.',
     'cli_partial_lifetime': 'Copilot CLI history covers only part of the session lifetime.',
     'invalid_cli_counter': 'Invalid Copilot CLI counters remain unavailable.',
+    'copilot_store_conflict': 'Copilot CLI index and history evidence cannot be reconciled safely.',
     'incompatible_session_epoch': 'Conflicting Copilot CLI lifetime evidence remains unresolved.',
     'invalid_event_chain': 'Copilot CLI event history is incomplete or inconsistent.',
     'event_chain_gap': 'Copilot CLI event history has gaps.',
@@ -269,6 +270,7 @@ class SelectedContribution:
     harness: str = 'pi'
     saved_history: bool = False
     output_lower_bound: bool = False
+    lower_bound_measures: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.family is not None and not isinstance(self.family, SessionFamily):
@@ -369,7 +371,7 @@ def _sums(rows: Sequence[SelectedContribution], prices: Mapping[ObservationId, O
                 counters[1] += 1
             elif isinstance(value, Known):
                 counters[0] += value.value
-                counters[3] += measure == 'output' and row.output_lower_bound
+                counters[3] += (measure == 'output' and row.output_lower_bound) or measure in row.lower_bound_measures
             elif isinstance(value, NotApplicable):
                 counters[2] += 1
             else:
@@ -407,7 +409,10 @@ def _coverage_facts(rows: Sequence[SelectedContribution]) -> list[tuple[str, Obs
             codes['not_applicable'].add(row.observation_id)
         if (any(value.lower_bound for value in selected_quantities)
                 or row.output_lower_bound and ('output', 'selected') in row.decisions
-                and isinstance(row.tokens.buckets.output, Known)):
+                and isinstance(row.tokens.buckets.output, Known)
+                or any(measure in row.lower_bound_measures and state == 'selected'
+                       and isinstance(row.tokens.total if measure == 'total' else getattr(row.tokens.buckets, measure), Known)
+                       for measure, state in row.decisions if measure != 'recorded_usd')):
             codes['lower_bound'].add(row.observation_id)
         if isinstance(row.time, (Interval, Undated)):
             codes['interval_only' if isinstance(row.time, Interval) else 'timing_unavailable'].add(row.observation_id)

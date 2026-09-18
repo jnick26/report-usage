@@ -390,7 +390,7 @@ def test_offline_bundle_import_restart_and_local_assets(tmp_path, legacy):
         assert report.revision == ledger.snapshot().revision
         from dataclasses import asdict
         with ledger.connect() as db:
-            assert db.execute('SELECT schema_version FROM ledger_meta').one()[0] == 6
+            assert db.execute('SELECT schema_version FROM ledger_meta').one()[0] == 7
             sessions = dict(db.execute('SELECT harness,count(*) FROM session GROUP BY harness'))
             expected_sessions = dict(manifest['sessions'])
             expected_sessions['pi'] += 192

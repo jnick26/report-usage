@@ -1,7 +1,7 @@
 """DuckDB-owned representations and atomic imports. No transcript retention."""
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager, nullcontext
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 import hashlib
@@ -9,7 +9,7 @@ import json
 import os
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 import duckdb
 
 from .database import Connection, Row, open_database, writer_lock
@@ -26,6 +26,9 @@ from .pi_reader import (read_pi, Diagnostic, ReadBatch, RejectedSource, UsageRec
                         SessionMetadata, DelegationRef, read_metadata)
 from .reporting import AllTime, DIAGNOSTIC_CODES, DateRange, ReportQuery, SelectedContribution, SessionFamily
 from .source_input import SourcePayload, detect_source
+
+if TYPE_CHECKING:
+    from .copilot_store_reader import CopilotStoreCall, CopilotStoreSnapshot
 
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 PROFILE = 'pi-v3/0.85.1-shape-1'
@@ -173,18 +176,20 @@ class Storage:
                 from .migrate_sqlite import migrate_sqlite
                 migrate_sqlite(legacy, self.path)
             if self.path.exists():
-                from .migrate_duckdb import migrate_duckdb_v5, schema_version
+                from .migrate_duckdb import migrate_duckdb_v5, migrate_duckdb_v6, schema_version
                 version = schema_version(self.path)
                 if version == 5:
                     migrate_duckdb_v5(self.path)
-                elif version not in (None, 6):
+                elif version == 6:
+                    migrate_duckdb_v6(self.path)
+                elif version not in (None, 7):
                     raise ValueError('unsupported_schema')
             self._db: duckdb.DuckDBPyConnection | None = open_database(self.path)
             with self.connect() as db:
                 exists = db.execute("SELECT 1 FROM information_schema.tables WHERE table_name='ledger_meta'").fetchone()
                 if not exists:
                     db.raw.execute(Path(__file__).with_name('schema.sql').read_text())
-                elif db.execute('SELECT schema_version FROM ledger_meta').one()[0] != 6:
+                elif db.execute('SELECT schema_version FROM ledger_meta').one()[0] != 7:
                     raise ValueError('unsupported_schema')
                 db.execute('CREATE INDEX IF NOT EXISTS decision_nonexcluded ON decision(observation_id)')
 
@@ -255,7 +260,10 @@ class Storage:
     def import_source(self, locator: str, data: bytes) -> int:
         return self.import_sources((SourcePayload(locator, data),))
 
-    def import_sources(self, sources: Iterable[SourcePayload | tuple[str, bytes]]) -> int:
+    def import_session_store(self, snapshot: 'CopilotStoreSnapshot') -> int:
+        return self.import_sources((snapshot,))
+
+    def import_sources(self, sources: Iterable['SourcePayload | CopilotStoreSnapshot | tuple[str, bytes]']) -> int:
         """Commit a bounded batch and reconcile once; callers own batch size/progress."""
         with self.connect(write=True) as db:
             db.execute('BEGIN IMMEDIATE')
@@ -264,8 +272,12 @@ class Storage:
             changed_locators: set[str] = set()
             before = db.total_changes
             for source in sources:
-                payload = source if isinstance(source, SourcePayload) else SourcePayload(*source)
-                imported = self._import_source(db, payload)
+                payload = SourcePayload(*source) if isinstance(source, tuple) else source
+                if not isinstance(payload, SourcePayload):
+                    with db.batch():
+                        imported = self._import_session_store(db, payload)
+                else:
+                    imported = self._import_source(db, payload)
                 changed = imported or changed
                 if imported:
                     changed_locators.add(payload.locator)
@@ -277,6 +289,41 @@ class Storage:
             if changed or db.total_changes != before:
                 db.execute('UPDATE ledger_meta SET revision=revision+1')
             return int(db.execute('SELECT revision FROM ledger_meta').one()[0])
+
+    def _import_session_store(self, db: Connection, snapshot: 'CopilotStoreSnapshot') -> bool:
+        from .copilot_store_accounting import store_record
+        previous = db.execute('SELECT * FROM source_generation WHERE locator=? ORDER BY generation DESC LIMIT 1', (snapshot.locator,)).fetchone()
+        if previous and previous['sha256'] == snapshot.fingerprint and previous['profile'] == snapshot.profile and previous['availability'] == 'available':
+            return False
+        generation = previous['generation'] + 1 if previous else 0
+        source_id = digest(snapshot.locator + ':' + str(generation))
+        db.execute('INSERT INTO source_generation VALUES(?,?,?,?,NULL,?,0,0,?)',
+                   (source_id, snapshot.locator, generation, snapshot.fingerprint, snapshot.profile, 'available'))
+        owners = {session.session_id for session in snapshot.sessions}
+        if len(owners) != len(snapshot.sessions) or any(call.session_id not in owners for call in snapshot.calls):
+            raise ValueError('invalid_store_owner')
+        calls_by_session: dict[str, list[CopilotStoreCall]] = {}
+        for native_call in snapshot.calls:
+            calls_by_session.setdefault(native_call.session_id, []).append(native_call)
+        ordinal = 0
+        for session in snapshot.sessions:
+            sid = 'copilot-cli:' + session.session_id
+            db.execute('INSERT OR IGNORE INTO session(id,harness,native_id,started_us,last_seen_us,cwd) VALUES(?,?,?,?,?,?)',
+                       (sid, 'copilot-cli', session.session_id, micros(session.created_at), micros(session.updated_at), session.cwd))
+            db.execute('INSERT OR IGNORE INTO session_attribution VALUES(?,?,?,?)', (sid, None, None, 'not_resolved'))
+            db.execute('INSERT INTO copilot_store_session VALUES(?,?,?,?,?)',
+                       (source_id, sid, micros(session.created_at), micros(session.updated_at), session.host_type))
+            for call in tuple(calls_by_session.get(session.session_id, ())) or (None,):
+                ordinal += 1
+                raw = asdict(call) if call is not None else {'unavailable': True}
+                counters = json.dumps(raw, sort_keys=True, default=str, separators=(',', ':'))
+                compatibility = digest(json.dumps({key: value for key, value in raw.items() if key != 'row_id'}, sort_keys=True, default=str, separators=(',', ':')))
+                record = store_record(call, source_id, ordinal, snapshot.profile)
+                oid = self._insert_observation(db, source_id, sid, record)
+                db.execute('INSERT INTO copilot_store_evidence VALUES(?,?,?,?,?,?,?,?)',
+                           (source_id, call.row_id if call else None, oid, call.turn_index if call else None,
+                            call.agent_id if call else None, call.parent_tool_call_id if call else None, counters, compatibility))
+        return True
 
     def _import_source(self, db: Connection, payload: SourcePayload) -> bool:
         locator, data = payload.locator, payload.data
@@ -586,6 +633,8 @@ class Storage:
         # A source can contain other owners; source order affects legacy replay boundaries.
         for row in db.execute('SELECT DISTINCT g.locator,o.session_id FROM appearance a JOIN source_generation g ON g.id=a.source_id JOIN observation o ON o.id=a.observation_id'):
             link(('locator', row['locator']), ('session', row['session_id']))
+        for row in db.execute('SELECT g.locator,m.session_id FROM copilot_store_session m JOIN source_generation g ON g.id=m.source_id'):
+            link(('locator', row['locator']), ('session', row['session_id']))
         for row in db.execute('SELECT DISTINCT o.session_id,e.response_id,e.mirror_response_id FROM codex_evidence e JOIN observation o ON o.id=e.observation_id'):
             for name in ('response_id', 'mirror_response_id'):
                 if row[name] is not None:
@@ -627,6 +676,8 @@ class Storage:
             self._reconcile_copilot_vscode(db)
         if harnesses is None or 'copilot-cli' in harnesses:
             self._reconcile_copilot_cli(db)
+            from .copilot_store_accounting import reconcile_store
+            reconcile_store(db)
         if harnesses is not None and 'pi' not in harnesses:
             return
         # ponytail: rebuild decisions for whole affected components; narrower deltas need rule-level dependencies.
@@ -1300,14 +1351,17 @@ class Storage:
                 prices[price['observation_id']] = (RecordedEstimate(Decimal(price['amount_decimal']), price['currency'], tuple((k, Decimal(v)) for k, v in json.loads(price['components_json']).items()), price['source_ref'])
                                                    if price['state'] == 'known' else MissingEstimate(price['reason']))
             quantities: dict[str, list[MeasuredQuantity]] = {}
-            for value in db.execute('SELECT v.* FROM relevant r JOIN quantity_value v ON v.observation_id=r.id'):
+            for value in db.execute("SELECT v.*,d.reason AS decision_reason FROM relevant r JOIN quantity_value v ON v.observation_id=r.id LEFT JOIN quantity_decision d ON d.observation_id=v.observation_id AND d.measure=v.measure"):
                 quantities.setdefault(value['observation_id'], []).append(MeasuredQuantity(
                     value['measure'], value['state'], Decimal(value['amount_decimal']) if value['amount_decimal'] is not None else None,
-                    value['reason'], bool(value['lower_bound']), value['source_ref']))
+                    value['reason'], bool(value['lower_bound']) or value['state'] == 'known' and value['decision_reason'] == 'copilot_store_partial_index', value['source_ref']))
             decisions: dict[str, list[tuple[str, str]]] = {}
             reasons: dict[str, set[str]] = {}
+            lower_bounds: dict[str, list[str]] = {}
             for decision in db.execute('SELECT d.observation_id,d.measure,d.state,d.reason FROM relevant r JOIN decision d ON d.observation_id=r.id'):
                 decisions.setdefault(decision['observation_id'], []).append((decision['measure'], decision['state']))
+                if decision['reason'] == 'copilot_store_partial_index' and decision['measure'] != 'recorded_usd':
+                    lower_bounds.setdefault(decision['observation_id'], []).append(decision['measure'])
                 if decision['state'] != 'selected' and decision['reason'] in DIAGNOSTIC_CODES:
                     reasons.setdefault(decision['observation_id'], set()).add(decision['reason'])
             quantity_decisions: dict[str, list[tuple[str, str]]] = {}
@@ -1330,7 +1384,8 @@ class Storage:
                     ModelIdentity(None, None) if 'codex_model_conflict' in row_diagnostics else ModelIdentity(row['provider'], row['model']), time, tokens, prices.pop(row['id']), attributions[row['session_id']], tuple(decisions.pop(row['id'], ())),
                     from_micros(session['started_us']), from_micros(session['last_seen_us']), tuple(sorted(reasons.pop(row['id'], set()))) + tuple(sorted(row_diagnostics - {'saved_history'})), families.get(row['session_id']),
                     tuple(quantities.pop(row['id'], ())), tuple(quantity_decisions.pop(row['id'], ())), session['harness'], 'saved_history' in row_diagnostics,
-                    json.loads(row['safe_facts_json']).get('usage.outputFinality') == VSCODE_OUTPUT_LOWER_BOUND))
+                    json.loads(row['safe_facts_json']).get('usage.outputFinality') == VSCODE_OUTPUT_LOWER_BOUND,
+                    tuple(lower_bounds.get(row['id'], ()))))
             return ReportInput(revision, tuple(contributions), diagnostics)
 
     def snapshot(self) -> Snapshot:
